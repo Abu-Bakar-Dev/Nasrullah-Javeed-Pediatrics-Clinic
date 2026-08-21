@@ -1,0 +1,6 @@
+{
+  "name": "Nasrullah Javed Pediatric and Health Clinic",
+  "description": "Comprehensive clinical management portal featuring patient registration, appointment scheduling, doctor & assistant dashboards, electronic prescriptions, staff directory, and real-time patient records.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
