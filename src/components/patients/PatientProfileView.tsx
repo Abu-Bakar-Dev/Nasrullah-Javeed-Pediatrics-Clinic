@@ -12,10 +12,12 @@ export const PatientProfileView: React.FC = () => {
     setActiveView
   } = useApp();
 
-  const patient = getPatientById(selectedPatientId || '') || patients[0];
-  const patientPrescriptions = prescriptions.filter(rx => rx.patientId === patient.id || rx.patientName === patient.name);
+  const patient = getPatientById(selectedPatientId || '');
+  const patientPrescriptions = prescriptions.filter(rx => rx.patientId === patient?.id);
 
   const [activeTab, setActiveTab] = useState<'prescriptions' | 'notes' | 'labs'>('prescriptions');
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const [showModal, setShowModal] = useState(false);
 
   // New Prescription Modal Form State
@@ -24,40 +26,52 @@ export const PatientProfileView: React.FC = () => {
   const [frequency, setFrequency] = useState('Once daily (QD)');
   const [duration, setDuration] = useState('30');
   const [refills, setRefills] = useState('0');
-  const [indication, setIndication] = useState(patient.activeConditions[0] || 'General Consultation');
+  const [indication, setIndication] = useState(patient?.activeConditions[0] || 'General Consultation');
   const [instructions, setInstructions] = useState('');
 
-  const handleCreatePrescription = (e: React.FormEvent) => {
+  const handleCreatePrescription = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!medName) return;
+    if (isSaving || !patient || !currentUser) return;
+    setSaveError('');
+    setIsSaving(true);
+    try {
+      const result = await addPrescription({
+        patientId: patient.id,
+        patientName: patient.name,
+        patientMrn: patient.mrn,
+        patientDob: patient.dob,
+        doctorId: currentUser.id,
+        doctorName: currentUser.name,
+        doctorAvatar: currentUser?.avatarUrl,
+        diagnosis: indication,
+        medications: [
+          {
+            id: `med-${Date.now()}`,
+            drugName: `${medName} ${dosage}`.trim(),
+            route: 'Oral (PO)',
+            frequency,
+            sig: instructions || `Take 1 tablet ${frequency.toLowerCase()}`,
+            quantity: parseInt(duration) || 30,
+            refills: parseInt(refills) || 0
+          }
+        ]
+      });
 
-    addPrescription({
-      patientId: patient.id,
-      patientName: patient.name,
-      patientMrn: patient.mrn,
-      patientDob: patient.dob,
-      doctorId: currentUser?.id || 'staff-1',
-      doctorName: currentUser?.name || 'Dr. Sarah Jenkins',
-      doctorAvatar: currentUser?.avatarUrl,
-      diagnosis: indication,
-      medications: [
-        {
-          id: `med-${Date.now()}`,
-          drugName: `${medName} ${dosage}`.trim(),
-          route: 'Oral (PO)',
-          frequency,
-          sig: instructions || `Take 1 tablet ${frequency.toLowerCase()}`,
-          quantity: parseInt(duration) || 30,
-          refills: parseInt(refills) || 0
-        }
-      ]
-    });
-
-    setShowModal(false);
-    setMedName('');
-    setDosage('');
-    setInstructions('');
+      if (!result.prescription) { setSaveError(result.error || 'Unable to save prescription.'); return; }
+      setShowModal(false);
+      setMedName('');
+      setDosage('');
+      setInstructions('');
+    } catch { setSaveError('Prescription could not be saved. Please try again.'); }
+    finally { setIsSaving(false); }
   };
+
+  if (!patient) return (
+    <div className="p-6 bg-white border border-slate-200 rounded-xl space-y-3">
+      <p>No patient selected. Choose a registered patient to view their history.</p>
+      <button onClick={() => setActiveView('patients')} className="text-emerald-700 underline">Open Patient Directory</button>
+    </div>
+  );
 
   return (
     <div className="space-y-4 font-sans">
@@ -77,7 +91,7 @@ export const PatientProfileView: React.FC = () => {
             </div>
             <h2 className="text-xl font-bold text-slate-800 mt-0.5">{patient.name}</h2>
             <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500 mt-0.5 font-mono">
-              <span>DOB: {patient.dob} ({patient.age} yrs)</span>
+              <span>DOB: {patient.dob || 'Not recorded'} ({patient.age} yrs)</span>
               <span>•</span>
               <span className="text-emerald-700 font-bold">Blood: {patient.bloodType}</span>
               <span>•</span>
@@ -88,10 +102,10 @@ export const PatientProfileView: React.FC = () => {
 
         <div className="flex gap-2 w-full md:w-auto">
           <button
-            onClick={() => setActiveView('patient_registration')}
+            onClick={() => setActiveView('patients')}
             className="px-3 py-1.5 border border-slate-200 rounded text-xs font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
           >
-            Edit Record
+            Patient Directory
           </button>
           {currentUser?.role === 'doctor' && <button
             onClick={() => setShowModal(true)}
@@ -159,7 +173,7 @@ export const PatientProfileView: React.FC = () => {
               </div>
               <div className="bg-slate-50 p-2.5 rounded border border-slate-200">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Heart Rate</span>
-                <span className="font-mono font-bold text-slate-800 text-sm">{patient.vitals.heartRate} bpm</span>
+                <span className="font-mono font-bold text-slate-800 text-sm">{patient.vitals.heartRate}</span>
               </div>
               <div className="bg-slate-50 p-2.5 rounded border border-slate-200">
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Body Weight</span>
@@ -216,6 +230,7 @@ export const PatientProfileView: React.FC = () => {
                 Electronic Prescriptions & Refill Log
               </h3>
               <div className="space-y-3">
+                {patientPrescriptions.length === 0 && <p className="text-xs text-slate-500">No prescriptions recorded yet.</p>}
                 {patientPrescriptions.map(rx => (
                   <div
                     key={rx.id}
@@ -225,7 +240,7 @@ export const PatientProfileView: React.FC = () => {
                       <div className="flex items-center gap-2">
                         <span className="material-symbols-outlined text-emerald-600 text-base">medication</span>
                         <h4 className="font-bold text-xs text-slate-800">
-                          {rx.medications[0]?.drugName || 'Prescription Order'}
+                          {rx.medications.map(med => med.drugName).join(', ') || 'Prescription Order'}
                         </h4>
                       </div>
                       <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 text-[10px] font-bold rounded">
@@ -234,7 +249,7 @@ export const PatientProfileView: React.FC = () => {
                     </div>
 
                     <p className="text-xs text-slate-600 font-mono mb-2">
-                      SIG: {rx.medications[0]?.sig || 'Take as instructed.'}
+                      {rx.medications.map(med => `${med.drugName}: ${med.sig}`).join('; ')}
                     </p>
 
                     <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-200/60 font-sans">
@@ -284,6 +299,7 @@ export const PatientProfileView: React.FC = () => {
             </div>
 
             <form onSubmit={handleCreatePrescription} className="p-5 space-y-3 text-xs">
+              {saveError && <p role="alert" className="p-3 text-rose-700 bg-rose-50 rounded">{saveError}</p>}
               <div>
                 <label className="block font-bold text-slate-700 mb-1" htmlFor="medication">Medication & Strength</label>
                 <input
@@ -345,7 +361,7 @@ export const PatientProfileView: React.FC = () => {
                   Cancel
                 </button>
                 <button
-                  type="submit"
+                  type="submit" disabled={isSaving}
                   className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-bold shadow-sm"
                 >
                   Authorize & Sign Rx

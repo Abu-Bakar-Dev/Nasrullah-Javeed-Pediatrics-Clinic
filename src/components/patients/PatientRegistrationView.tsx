@@ -15,6 +15,7 @@ export const PatientRegistrationView: React.FC = () => {
   const [createdPatientName, setCreatedPatientName] = useState('');
   const [createdPatientMrn, setCreatedPatientMrn] = useState('');
   const [createdPatientId, setCreatedPatientId] = useState('');
+  const [error, setError] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
 
   // Phone Validation State
@@ -22,34 +23,28 @@ export const PatientRegistrationView: React.FC = () => {
   const isPhoneValidLength = cleanedPhone.length >= 10;
   const isPhoneAvailable = isPhoneValidLength ? checkPhoneAvailability(phone) : true;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isPhoneAvailable && isPhoneValidLength) return;
-
+    if (isProcessing) return;
+    setError('');
+    if (!fullName.trim() || !isPhoneValidLength || !isPhoneAvailable || age === '' || Number(age) < 0 || Number(age) > 130) {
+      setError('Enter a name, an available phone number, and age between 0 and 130.');
+      return;
+    }
     setIsProcessing(true);
-
-    setTimeout(() => {
-      const birthYear = new Date().getFullYear() - (parseInt(age) || 30);
-      const dobStr = `${birthYear}-05-15`;
-
-      const newPat = addPatient({
-        name: fullName,
-        phone,
-        age: parseInt(age) || 30,
-        dob: dobStr,
-        gender,
-        bloodType: 'O+',
-        address: address || '123 Health Ave, Clinic City',
-        allergies: [],
-        activeConditions: ['Initial Medical Consult']
+    try {
+      const result = await addPatient({
+        name: fullName.trim(), phone, age: Number(age), dob: '', gender,
+        bloodType: 'Unknown', address: address.trim(), allergies: [], activeConditions: []
       });
-
-      setCreatedPatientName(newPat.name);
-      setCreatedPatientMrn(newPat.mrn);
-      setCreatedPatientId(newPat.id);
-      setIsProcessing(false);
+      if (!result.patient) { setError(result.error || 'Unable to register patient.'); return; }
+      setCreatedPatientName(result.patient.name);
+      setCreatedPatientMrn(result.patient.mrn);
+      setCreatedPatientId(result.patient.id);
       setIsSubmitted(true);
-    }, 600);
+    } catch {
+      setError('Patient registration failed. Check your connection and try again.');
+    } finally { setIsProcessing(false); }
   };
 
   const handleReset = () => {
@@ -87,6 +82,7 @@ export const PatientRegistrationView: React.FC = () => {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5 text-xs">
+            {error && <p role="alert" className="text-rose-700">{error}</p>}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               {/* Full Name */}
               <div className="col-span-1 md:col-span-2">
@@ -168,7 +164,7 @@ export const PatientRegistrationView: React.FC = () => {
                     id="age"
                     type="number"
                     min="0"
-                    max="120"
+                    max="130"
                     value={age}
                     onChange={e => setAge(e.target.value)}
                     placeholder="Years (e.g. 38)"

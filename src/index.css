@@ -47,3 +47,17 @@
   background: #94a3b8;
 }
 
+
+@media print {
+  body.printing-receipt *, body.printing-prescription * { visibility: hidden; }
+  body.printing-receipt #printable-receipt,
+  body.printing-receipt #printable-receipt *,
+  body.printing-prescription #printable-prescription,
+  body.printing-prescription #printable-prescription * { visibility: visible; }
+  body.printing-receipt #printable-receipt,
+  body.printing-prescription #printable-prescription {
+    position: absolute; inset: 0; width: 100%; max-height: none; overflow: visible;
+    background: white; padding: 16px;
+  }
+  #printable-prescription button { display: none; }
+}

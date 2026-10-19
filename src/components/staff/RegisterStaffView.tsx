@@ -13,16 +13,25 @@ export const RegisterStaffView: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [isSuccess, setIsSubmitted] = useState(false);
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName || !email || !department || tempPassword.length < 8) return;
+    if (isSubmitting) return;
+    if (!fullName.trim() || !email.trim() || !department.trim() || tempPassword.length < 8) {
+      setError('Enter a name, email, department, and a password of at least 8 characters.');
+      return;
+    }
+    setError('');
+    setIsSubmitting(true);
+
+    try {
 
     const result = await addStaffMember({
-      name: fullName,
-      email,
+      name: fullName.trim(),
+      email: email.trim().toLowerCase(),
       role,
-      department,
+      department: department.trim(),
       password: tempPassword
     });
 
@@ -31,6 +40,11 @@ export const RegisterStaffView: React.FC = () => {
     setTimeout(() => {
       setActiveView('staff');
     }, 1200);
+    } catch {
+      setError('Unable to register account. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -127,7 +141,7 @@ export const RegisterStaffView: React.FC = () => {
                   className="w-full font-body-md text-xs bg-surface-container-lowest border border-outline-variant rounded-xl focus:ring-2 focus:ring-primary focus:border-primary transition-all py-2.5 px-4 text-on-surface"
                 >
                   <option value="doctor">Doctor / Specialist</option>
-                  <option value="assistant">Clinical Assistant / Admin</option>
+                  <option value="assistant">Clinical Assistant</option>
                 </select>
               </div>
 
@@ -190,9 +204,10 @@ export const RegisterStaffView: React.FC = () => {
               </button>
               <button
                 type="submit"
+                disabled={isSubmitting}
                 className="font-semibold px-6 py-2.5 rounded-xl bg-primary text-on-primary hover:bg-surface-tint transition-all shadow-sm active:scale-98"
               >
-                Register Staff Member
+                {isSubmitting ? 'Registering?' : 'Register Staff Member'}
               </button>
             </div>
           </form>

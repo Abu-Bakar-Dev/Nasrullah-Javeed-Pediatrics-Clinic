@@ -5,6 +5,7 @@ export const DoctorDashboard: React.FC = () => {
   const {
     currentUser,
     appointments,
+    patients,
     updateAppointmentStatus,
     setSelectedPatientId,
     setActiveView,
@@ -12,9 +13,11 @@ export const DoctorDashboard: React.FC = () => {
     messages
   } = useApp();
 
-  const upNextApt = appointments.find(a => a.status === 'waiting' || a.status === 'checked_in') || appointments[0];
-  const waitingApts = appointments.filter(a => a.id !== upNextApt?.id && a.status !== 'completed');
-  const completedCount = appointments.filter(a => a.status === 'completed').length;
+  const assignedAppointments = appointments.filter(a => a.doctorId === currentUser?.id);
+  const upNextApt = assignedAppointments.find(a => a.status === 'waiting' || a.status === 'checked_in');
+  const upNextPatient = patients.find(p => p.id === upNextApt?.patientId);
+  const waitingApts = assignedAppointments.filter(a => a.id !== upNextApt?.id && a.status !== 'completed');
+  const completedCount = assignedAppointments.filter(a => a.status === 'completed').length;
 
   return (
     <div className="space-y-5 font-sans">
@@ -27,10 +30,10 @@ export const DoctorDashboard: React.FC = () => {
             <span className="text-xs font-semibold text-emerald-600">Live Practice Mode</span>
           </div>
           <h2 className="text-lg md:text-xl font-bold text-slate-800">
-            Good morning, {currentUser?.name || 'Dr. Sarah Jenkins'}
+            Good morning, {currentUser?.name || 'Doctor'}
           </h2>
           <p className="text-xs text-slate-500">
-            You have {appointments.length} patients scheduled today. {waitingApts.length} in waiting queue.
+            You have {assignedAppointments.length} patients scheduled today. {waitingApts.length} in waiting queue.
           </p>
         </div>
         
@@ -38,7 +41,7 @@ export const DoctorDashboard: React.FC = () => {
         <div className="flex gap-3 w-full md:w-auto">
           <div className="bg-slate-50 px-3.5 py-2 rounded border border-slate-200 min-w-[110px]">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Queue</p>
-            <p className="text-xl font-bold text-slate-800 mt-0.5">{appointments.length}</p>
+            <p className="text-xl font-bold text-slate-800 mt-0.5">{assignedAppointments.length}</p>
           </div>
           <div className="bg-slate-50 px-3.5 py-2 rounded border border-slate-200 min-w-[110px]">
             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Consulted</p>
@@ -91,14 +94,14 @@ export const DoctorDashboard: React.FC = () => {
                 </div>
                 <div className="bg-slate-50 p-3 rounded border border-slate-200">
                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Recorded Vitals</span>
-                  <p className="text-xs font-mono font-bold text-slate-800 mt-0.5">BP: 120/80 mmHg • HR: 72 bpm</p>
+                  <p className="text-xs font-mono font-bold text-slate-800 mt-0.5">BP: {upNextPatient?.vitals.bp || 'Not recorded'}; HR: {upNextPatient?.vitals.heartRate || 'Not recorded'}</p>
                 </div>
               </div>
 
               <div className="flex flex-wrap gap-2 pt-1">
                 <button
-                  onClick={() => {
-                    updateAppointmentStatus(upNextApt.id, 'in_consultation');
+                  onClick={async () => {
+                    if (!await updateAppointmentStatus(upNextApt.id, 'in_consultation')) return;
                     setSelectedPatientId(upNextApt.patientId || 'pat-1');
                     setActiveView('patient_profile');
                   }}

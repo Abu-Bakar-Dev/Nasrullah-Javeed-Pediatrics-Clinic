@@ -1,7 +1,7 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Appointment, DoctorService } from '../../types';
 import { useApp } from '../../context/AppContext';
-import { dbSaveReceipt } from '../../lib/supabase';
+import { dbSaveReceipt, dbGetReceipt, receiptNumber } from '../../lib/supabase';
 
 interface PrintReceiptModalProps {
   appointment: Appointment;
@@ -17,24 +17,44 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
   const { currentUser, getPatientById } = useApp();
   const patient = getPatientById(appointment.patientId);
 
-  const receiptNo = `RCP-${appointment.id.replace(/\D/g, '').slice(-6) || '991024'}`;
-  const currentDate = new Date().toLocaleDateString('en-US', {
+  const [savedReceipt, setSavedReceipt] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let cancelled = false;
+    dbGetReceipt(appointment.id).then(receipt => { if (!cancelled) setSavedReceipt(receipt); })
+      .catch(() => { if (!cancelled) setError('Cannot load this receipt. Close and reopen to retry.'); })
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, [appointment.id]);
+  const receiptNo = savedReceipt?.receipt_no || receiptNumber(appointment.id);
+  const currentDate = new Date(savedReceipt?.printed_at || Date.now()).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric'
   });
-  const currentTime = new Date().toLocaleTimeString('en-US', {
+  const currentTime = new Date(savedReceipt?.printed_at || Date.now()).toLocaleTimeString('en-US', {
     hour: '2-digit',
     minute: '2-digit'
   });
 
-  const amount = service?.price || 120;
-  const serviceTitle = service?.name || appointment.reason || 'General Health Consultation';
+  const amount = Number(savedReceipt?.amount_paid ?? service?.price ?? 100);
+  const serviceTitle = savedReceipt?.service_name || service?.name || appointment.reason || 'General Health Consultation';
 
   const handlePrint = async () => {
-    const result = await dbSaveReceipt(appointment, serviceTitle, amount);
-    if (!result.success) { window.alert(result.error || 'Receipt could not be stored.'); return; }
-    window.print();
+    if (isSaving || isLoading || error) return;
+    setIsSaving(true);
+    try {
+      const result = await dbSaveReceipt(appointment, serviceTitle, amount);
+      if (!result.success) { setError(result.error || 'Receipt could not be stored.'); return; }
+      setSavedReceipt(result.receipt);
+      // Let React render the persisted receipt details before opening print preview.
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      document.body.classList.add('printing-receipt');
+      window.print();
+      document.body.classList.remove('printing-receipt');
+    } finally { setIsSaving(false); }
   };
 
   return (
@@ -54,6 +74,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
           </button>
         </div>
 
+        {error && <p role="alert" className="p-3 text-xs text-rose-700 print:hidden">{error}</p>}
         {/* Printable Area */}
         <div className="p-6 overflow-y-auto space-y-6 text-slate-800 bg-white print:p-0 print:shadow-none" id="printable-receipt">
           {/* Clinic Banner */}
@@ -96,7 +117,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">MRN #:</span>
-                <span className="font-mono font-bold text-emerald-700">{patient?.mrn || 'P-4821'}</span>
+                <span className="font-mono font-bold text-emerald-700">{patient?.mrn || 'Unavailable'}</span>
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">Contact Phone:</span>
@@ -104,7 +125,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
               </div>
               <div>
                 <span className="text-slate-500 block text-[10px]">Gender / Age:</span>
-                <span className="text-slate-700">{patient?.gender || 'Male'}, {patient?.age || appointment.patientAge || 32} yrs</span>
+                <span className="text-slate-700">{patient?.gender || 'Unknown'}, {patient?.age ?? appointment.patientAge ?? 'Unknown'} yrs</span>
               </div>
             </div>
           </div>
@@ -192,10 +213,11 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
           </button>
           <button
             onClick={handlePrint}
+            disabled={isLoading || isSaving || !!error}
             className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded text-xs font-bold shadow-md flex items-center gap-2"
           >
             <span className="material-symbols-outlined text-base">print</span>
-            Print Receipt
+            {isLoading ? 'Loading...' : isSaving ? 'Saving...' : 'Print Receipt'}
           </button>
         </div>
       </div>

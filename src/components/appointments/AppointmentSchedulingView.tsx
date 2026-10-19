@@ -5,19 +5,19 @@ import { PrintReceiptModal } from './PrintReceiptModal';
 import { formatPhoneNumber } from '../../utils/phoneFormatter';
 
 export const AppointmentSchedulingView: React.FC = () => {
-  const { patients, staff, appointments, addAppointment, setActiveView, doctorServices, currentUser } = useApp();
+  const { patients, staff, appointments, addAppointment, setActiveView, doctorServices, currentUser, selectedPatientId } = useApp();
 
   // Selected appointment for printing receipt modal
   const [selectedReceiptApt, setSelectedReceiptApt] = useState<Appointment | null>(null);
 
   // Search Phone
-  const [searchPhone, setSearchPhone] = useState('');
-  const [foundPatient, setFoundPatient] = useState<Patient | null>(null);
+  const [searchPhone, setSearchPhone] = useState(() => patients.find(p => p.id === selectedPatientId)?.phone || '');
+  const [foundPatient, setFoundPatient] = useState<Patient | null>(() => patients.find(p => p.id === selectedPatientId) || null);
 
   // Form Details
   const [providerId, setProviderId] = useState('');
   const [visitReason, setVisitReason] = useState('Routine Checkup');
-  const [apptDate, setApptDate] = useState(new Date().toISOString().slice(0, 10));
+  const [apptDate, setApptDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [apptTime, setApptTime] = useState('');
   const [notes, setNotes] = useState('');
   const [selectedServiceId, setSelectedServiceId] = useState<string>('');
@@ -25,6 +25,8 @@ export const AppointmentSchedulingView: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
 
   const doctors = staff.filter(member => member.role === 'doctor' && member.status === 'active');
+  const canBook = currentUser?.role === 'assistant' || currentUser?.role === 'super_admin';
+  const selectedPatient = foundPatient && patients.find(patient => patient.id === foundPatient.id);
   const searchDigits = searchPhone.replace(/\D/g, '');
   const matchingPatients = searchDigits.length >= 3
     ? patients
@@ -39,7 +41,9 @@ export const AppointmentSchedulingView: React.FC = () => {
     setBookingError('');
     const cleaned = searchPhone.replace(/\D/g, '');
     if (cleaned.length < 3) { setFoundPatient(null); setBookingError('Enter at least 3 phone-number digits.'); return; }
-    const p = patients.find(pat => pat.phone.replace(/\D/g, '').includes(cleaned));
+    const matches = patients.filter(pat => pat.phone.replace(/\D/g, '').includes(cleaned));
+    if (matches.length > 1) { setFoundPatient(null); setBookingError('Multiple patients match. Select the correct patient from the results.'); return; }
+    const p = matches[0];
     if (p) {
       setFoundPatient(p);
     } else { setFoundPatient(null); setBookingError('No registered patient was found with that phone number.'); }
@@ -47,30 +51,35 @@ export const AppointmentSchedulingView: React.FC = () => {
 
   const handleCreateAppointment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     setBookingError('');
+    if (!canBook) { setBookingError('Only an Assistant or Super Admin can create bookings.'); return; }
     const selectedDoctor = doctors.find(doctor => doctor.id === providerId);
-    if (!foundPatient) { setBookingError('Select a registered patient before creating the booking.'); return; }
+    if (!selectedPatient) { setBookingError('Select a registered patient before creating the booking.'); return; }
     if (!selectedDoctor) { setBookingError('No active doctor is selected. Create or activate a Doctor account first.'); return; }
     if (!apptDate || !apptTime) { setBookingError('Select both an appointment date and time.'); return; }
+    if (new Date(`${apptDate}T${apptTime}`) < new Date()) { setBookingError('Select a future appointment date and time.'); return; }
     setIsSaving(true);
 
-    const result = await addAppointment({
-      patientId: foundPatient.id,
-      patientName: foundPatient.name,
-      patientPhone: foundPatient.phone,
-      patientAge: foundPatient.age,
-      doctorId: providerId,
-      doctorName: selectedDoctor.name,
-      department: selectedDoctor.department,
-      reason: visitReason,
-      date: apptDate,
-      time: apptTime,
-      notes
-    });
-    setIsSaving(false);
-
-    if (!result.appointment) { setBookingError(result.error || 'Unable to save the booking.'); return; }
-    setSelectedReceiptApt(result.appointment);
+    try {
+      const result = await addAppointment({
+        patientId: selectedPatient.id,
+        patientName: selectedPatient.name,
+        patientPhone: selectedPatient.phone,
+        patientAge: selectedPatient.age,
+        doctorId: providerId,
+        doctorName: selectedDoctor.name,
+        department: selectedDoctor.department,
+        reason: visitReason,
+        date: apptDate,
+        time: apptTime,
+        notes
+      });
+      if (!result.appointment) { setBookingError(result.error || 'Unable to save the booking.'); return; }
+      setSelectedReceiptApt(result.appointment);
+      setApptTime('');
+    } catch { setBookingError('Booking could not be saved. Please try again.'); }
+    finally { setIsSaving(false); }
   };
 
   return (
@@ -103,10 +112,11 @@ export const AppointmentSchedulingView: React.FC = () => {
             </h3>
             <div className="flex gap-2 items-end">
               <div className="flex-1">
-                <label className="text-[11px] font-bold text-slate-600 block mb-1">
-                  Search Phone or Name
+                <label htmlFor="booking-patient" className="text-[11px] font-bold text-slate-600 block mb-1">
+                  Search Registered Patient by Phone
                 </label>
                 <input
+                  id="booking-patient"
                   type="text"
                   value={searchPhone}
                   onChange={e => {
@@ -151,6 +161,10 @@ export const AppointmentSchedulingView: React.FC = () => {
               </button>
             </div>
 
+            {!selectedPatient && <div className="mt-3 text-xs text-slate-600 space-y-2">
+              <p>Registration is required before booking. Search above and select an existing patient.</p>
+              {canBook && <button type="button" onClick={() => setActiveView('patient_registration')} className="font-bold text-emerald-700 underline">Register New Patient</button>}
+            </div>}
             {/* Found Result Card */}
             {foundPatient && (
               <div className="mt-3 p-3 bg-emerald-50/60 rounded border border-emerald-200 flex items-center justify-between text-xs">
@@ -183,11 +197,14 @@ export const AppointmentSchedulingView: React.FC = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Attending Specialist</label>
+                <label className="font-bold text-slate-700 block mb-1" htmlFor="booking-doctor">Attending Specialist</label>
                 <select
+                  id="booking-doctor"
                   value={providerId}
                   onChange={e => {
                     setProviderId(e.target.value);
+                    setSelectedServiceId('');
+                    setVisitReason('Routine Checkup');
                   }}
                   disabled={doctors.length === 0}
                   className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500"
@@ -198,18 +215,19 @@ export const AppointmentSchedulingView: React.FC = () => {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Consultation Service</label>
+                <label className="font-bold text-slate-700 block mb-1" htmlFor="booking-service">Consultation Service</label>
                 <select
+                  id="booking-service"
                   value={selectedServiceId}
                   onChange={e => {
                     setSelectedServiceId(e.target.value);
                     const srv = doctorServices.find(s => s.id === e.target.value);
-                    if (srv) setVisitReason(srv.name);
+                    setVisitReason(srv?.name || 'Routine Checkup');
                   }}
                   className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500"
                 >
                   <option value="">Standard Routine Consultation ($100)</option>
-                  {doctorServices.map(s => (
+                  {doctorServices.filter(s => s.doctorId === providerId).map(s => (
                     <option key={s.id} value={s.id}>
                       {s.name} (${s.price})
                     </option>
@@ -220,10 +238,11 @@ export const AppointmentSchedulingView: React.FC = () => {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Date</label>
+                <label className="font-bold text-slate-700 block mb-1" htmlFor="booking-date">Date</label>
                 <input
+                  id="booking-date"
                   type="date"
-                  min={new Date().toISOString().slice(0, 10)}
+                  min={new Date().toLocaleDateString('en-CA')}
                   value={apptDate}
                   onChange={e => setApptDate(e.target.value)}
                   className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500"
@@ -231,8 +250,9 @@ export const AppointmentSchedulingView: React.FC = () => {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1">Time Slot</label>
+                <label className="font-bold text-slate-700 block mb-1" htmlFor="booking-time">Time Slot</label>
                 <input
+                  id="booking-time"
                   type="time"
                   value={apptTime}
                   onChange={e => setApptTime(e.target.value)}
@@ -243,8 +263,9 @@ export const AppointmentSchedulingView: React.FC = () => {
             </div>
 
             <div>
-              <label className="font-bold text-slate-700 block mb-1">Chief Complaint / Triage Notes</label>
+              <label className="font-bold text-slate-700 block mb-1" htmlFor="booking-notes">Chief Complaint / Triage Notes</label>
               <textarea
+                id="booking-notes"
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 placeholder="Initial symptoms or consultation notes..."
@@ -255,7 +276,7 @@ export const AppointmentSchedulingView: React.FC = () => {
 
             <button
               onClick={handleCreateAppointment}
-              disabled={isSaving || doctors.length === 0}
+              disabled={isSaving || !selectedPatient || doctors.length === 0 || !canBook}
               className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded transition-colors shadow-sm flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span className="material-symbols-outlined text-base">receipt_long</span>
@@ -268,11 +289,12 @@ export const AppointmentSchedulingView: React.FC = () => {
         <div className="lg:col-span-5 space-y-4">
           <div className="bg-white rounded-lg border border-slate-200 p-4 shadow-sm space-y-3">
             <h3 className="font-bold text-xs uppercase tracking-wider text-slate-800 flex items-center justify-between pb-2 border-b border-slate-100">
-              <span>Today's Clinic Bookings ({appointments.length})</span>
+              <span>Clinic Bookings ({appointments.length})</span>
               <span className="material-symbols-outlined text-slate-400 text-lg">print</span>
             </h3>
 
             <div className="space-y-2 max-h-[460px] overflow-y-auto pr-1">
+              {appointments.length === 0 && <p className="p-3 text-xs text-slate-500">No appointments booked yet.</p>}
               {appointments.map(apt => (
                 <div
                   key={apt.id}
@@ -305,7 +327,7 @@ export const AppointmentSchedulingView: React.FC = () => {
         <PrintReceiptModal
           appointment={selectedReceiptApt}
           onClose={() => setSelectedReceiptApt(null)}
-          service={doctorServices.find(s => s.name === selectedReceiptApt.reason)}
+          service={doctorServices.find(s => s.name === selectedReceiptApt.reason && s.doctorId === selectedReceiptApt.doctorId)}
         />
       )}
     </div>

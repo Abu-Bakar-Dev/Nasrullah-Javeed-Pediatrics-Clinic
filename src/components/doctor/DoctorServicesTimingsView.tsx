@@ -19,15 +19,15 @@ export const DoctorServicesTimingsView: React.FC = () => {
   // If Super Admin, allow selecting which doctor to manage
   const doctorsList = staff.filter(s => s.role === 'doctor');
   const [selectedDoctorId, setSelectedDoctorId] = useState<string>(
-    currentUser?.role === 'super_admin' ? doctorsList[0]?.id || 'staff-1' : currentUser?.id || 'staff-1'
+    currentUser?.role === 'super_admin' ? doctorsList[0]?.id || '' : currentUser?.id || ''
   );
 
-  const activeDoctorId = currentUser?.role === 'super_admin' ? selectedDoctorId : (currentUser?.id || 'staff-1');
+  const activeDoctorId = currentUser?.role === 'super_admin' ? (doctorsList.find(doctor => doctor.id === selectedDoctorId)?.id || doctorsList[0]?.id || '') : (currentUser?.id || '');
   const activeDoctor = staff.find(s => s.id === activeDoctorId) || {
-    name: currentUser?.name || 'Dr. Sarah Jenkins',
-    email: currentUser?.email || 'sarah.jenkins@medflow.clinic',
-    department: currentUser?.department || 'Cardiology',
-    phone: currentUser?.phone || '(555) 234-5678'
+    name: currentUser?.role === 'doctor' ? currentUser.name : 'No doctor selected',
+    email: currentUser?.role === 'doctor' ? currentUser.email : '',
+    department: currentUser?.role === 'doctor' ? currentUser.department : '',
+    phone: currentUser?.role === 'doctor' ? currentUser.phone : ''
   };
 
   // Tab State
@@ -36,8 +36,8 @@ export const DoctorServicesTimingsView: React.FC = () => {
   // Profile Form state
   const [profName, setProfName] = useState(currentUser?.name || '');
   const [profEmail, setProfEmail] = useState(currentUser?.email || '');
-  const [profPhone, setProfPhone] = useState(currentUser?.phone || '(555) 234-5678');
-  const [profDept, setProfDept] = useState(currentUser?.department || 'Cardiology');
+  const [profPhone, setProfPhone] = useState(currentUser?.role === 'doctor' ? currentUser.phone : '');
+  const [profDept, setProfDept] = useState(currentUser?.role === 'doctor' ? currentUser.department : '');
   const [profBio, setProfBio] = useState(currentUser?.bio || 'Consultant Specialist focusing on pediatric and general wellness care.');
   const [profileSuccess, setProfileSuccess] = useState(false);
 

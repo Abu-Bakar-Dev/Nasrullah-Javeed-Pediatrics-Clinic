@@ -11,13 +11,13 @@ export const PatientDirectory: React.FC = () => {
   const doctorPatientIds = isDoctor
     ? new Set(
         appointments
-          .filter(a => a.doctorId === currentUser.id || a.doctorName.toLowerCase().includes('jenkins') || a.doctorName === currentUser.name)
+          .filter(a => a.doctorId === currentUser.id)
           .map(a => a.patientId)
       )
     : null;
 
   const roleFilteredPatients = isDoctor
-    ? patients.filter(p => doctorPatientIds?.has(p.id) || p.id === 'pat-1' || p.id === 'pat-2') // Ensure doctor sees their patients
+    ? patients.filter(p => doctorPatientIds?.has(p.id)) // Ensure doctor sees their patients
     : patients;
 
   const filtered = roleFilteredPatients.filter(
@@ -92,6 +92,7 @@ export const PatientDirectory: React.FC = () => {
               </tr>
             </thead>
             <tbody className="text-xs text-slate-700 divide-y divide-slate-100">
+              {filtered.length === 0 && <tr><td colSpan={6} className="p-6 text-center text-slate-500">No registered patients match. Register a patient before creating a booking.</td></tr>}
               {filtered.map(patient => (
                 <tr key={patient.id} className="hover:bg-slate-50/80 transition-colors">
                   <td className="py-3 px-4">
@@ -110,7 +111,7 @@ export const PatientDirectory: React.FC = () => {
                     <div className="text-[11px] text-slate-500">{patient.phone}</div>
                   </td>
                   <td className="py-3 px-4 text-xs text-slate-600">
-                    <span className="font-semibold">{patient.age}y</span> ({patient.dob})
+                    <span className="font-semibold">{patient.age}y</span> ({patient.dob || 'Not recorded'})
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex flex-wrap gap-1">
@@ -131,7 +132,7 @@ export const PatientDirectory: React.FC = () => {
                   </td>
                   <td className="py-3 px-4 text-xs font-mono">
                     <div className="font-bold text-slate-800">BP: {patient.vitals.bp}</div>
-                    <div className="text-[10px] text-slate-400">HR: {patient.vitals.heartRate} bpm</div>
+                    <div className="text-[10px] text-slate-400">HR: {patient.vitals.heartRate}</div>
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex justify-end gap-1.5">
@@ -145,7 +146,7 @@ export const PatientDirectory: React.FC = () => {
                         Open Chart
                       </button>
 
-                      {currentUser?.role === 'assistant' && (
+                      {(currentUser?.role === 'assistant' || currentUser?.role === 'super_admin') && (
                         <button
                           onClick={() => {
                             setSelectedPatientId(patient.id);

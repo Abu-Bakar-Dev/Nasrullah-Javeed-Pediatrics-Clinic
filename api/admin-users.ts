@@ -18,10 +18,10 @@ export default async function handler(req: any, res: any) {
   try {
     if (req.method === 'POST') {
       const { email, password, name, role, department, phone = '' } = req.body || {};
-      if (!email || !password || !name || !['doctor', 'assistant'].includes(role)) return res.status(400).json({ error: 'Invalid account details' });
-      const { data, error } = await admin.auth.admin.createUser({ email, password, email_confirm: true });
+      if (!email?.trim() || typeof password !== 'string' || password.length < 8 || !name?.trim() || !department?.trim() || !['doctor', 'assistant'].includes(role)) return res.status(400).json({ error: 'Invalid account details' });
+      const { data, error } = await admin.auth.admin.createUser({ email: email.trim().toLowerCase(), password, email_confirm: true });
       if (error || !data.user) return res.status(400).json({ error: error?.message || 'Account creation failed' });
-      const { error: profileError } = await admin.from('profiles').insert({ id: data.user.id, email: email.toLowerCase(), name, role, department, phone, status: 'active' });
+      const { error: profileError } = await admin.from('profiles').insert({ id: data.user.id, email: email.trim().toLowerCase(), name: name.trim(), role, department: department.trim(), phone, status: 'active' });
       if (profileError) { await admin.auth.admin.deleteUser(data.user.id); return res.status(400).json({ error: profileError.message }); }
       return res.status(201).json({ id: data.user.id });
     }
@@ -31,7 +31,10 @@ export default async function handler(req: any, res: any) {
     if (target?.role === 'super_admin') return res.status(403).json({ error: 'Super Admin accounts are protected' });
     if (req.method === 'DELETE') {
       const { error } = await admin.auth.admin.deleteUser(id);
-      return error ? res.status(400).json({ error: error.message }) : res.status(204).end();
+      if (error) return res.status(400).json({ error: error.message });
+      // Also remove the directory row on databases without the Auth delete cascade.
+      const { error: profileError } = await admin.from('profiles').delete().eq('id', id);
+      return profileError ? res.status(400).json({ error: profileError.message }) : res.status(204).end();
     }
     const allowed: any = {};
     for (const key of ['name','department','phone','status','role']) if (updates[key] !== undefined) allowed[key] = updates[key];

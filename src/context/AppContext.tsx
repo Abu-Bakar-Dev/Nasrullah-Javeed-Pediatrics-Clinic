@@ -13,10 +13,6 @@ import {
   DoctorTiming
 } from '../types';
 import {
-  INITIAL_STAFF,
-  INITIAL_PATIENTS,
-  INITIAL_APPOINTMENTS,
-  INITIAL_PRESCRIPTIONS,
   INITIAL_ALERTS,
   INITIAL_MESSAGES,
   INITIAL_DOCTOR_SERVICES,
@@ -29,6 +25,7 @@ import {
   dbDeleteStaff,
   dbUpsertPatient,
   dbUpsertAppointment,
+  dbUpdateAppointmentStatus,
   dbUpsertPrescription,
   signInWithPassword,
   getAuthenticatedProfile,
@@ -65,6 +62,7 @@ interface AppContextType {
   doctorServices: DoctorService[];
   doctorTimings: DoctorTiming[];
   isDbSyncing: boolean;
+  dataError: string;
   
   // Actions
   login: (role: UserRole, email?: string, password?: string) => Promise<{ success: boolean; error?: string }>;
@@ -74,13 +72,13 @@ interface AppContextType {
   setSearchQuery: (query: string) => void;
   
   // Data Mutators (Persisted directly to Supabase DB & local state)
-  addPatient: (patient: Omit<Patient, 'id' | 'mrn' | 'lastVisit' | 'balance' | 'vitals'> & { phone: string }) => Patient;
+  addPatient: (patient: Omit<Patient, 'id' | 'mrn' | 'lastVisit' | 'balance' | 'vitals'> & { phone: string }) => Promise<{ patient?: Patient; error?: string }>;
   addAppointment: (appointment: Omit<Appointment, 'id' | 'status'>) => Promise<{ appointment?: Appointment; error?: string }>;
-  updateAppointmentStatus: (id: string, status: AppointmentStatus) => void;
-  addPrescription: (prescription: Omit<Prescription, 'id' | 'date' | 'status'>) => Prescription;
+  updateAppointmentStatus: (id: string, status: AppointmentStatus) => Promise<boolean>;
+  addPrescription: (prescription: Omit<Prescription, 'id' | 'date' | 'status'>) => Promise<{ prescription?: Prescription; error?: string }>;
   addStaffMember: (staff: Omit<StaffMember, 'id' | 'status'>) => Promise<{ success: boolean; error?: string }>;
   updateStaffMember: (id: string, updated: Partial<StaffMember>) => void;
-  deleteStaffMember: (id: string) => void;
+  deleteStaffMember: (id: string) => Promise<{ success: boolean; error?: string }>;
   checkPhoneAvailability: (phone: string) => boolean;
   getPatientById: (id: string) => Patient | undefined;
   
@@ -105,8 +103,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       window.location.hash.includes('type=recovery')
     ) ? 'forgot_password' : 'dashboard'
   );
-  const [selectedPatientId, setSelectedPatientId] = useState<string | null>('pat-1');
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [dataError, setDataError] = useState('');
   const [isDbSyncing, setIsDbSyncing] = useState<boolean>(false);
 
   const [patients, setPatients] = useState<Patient[]>([]);
@@ -130,16 +129,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const dbData = await fetchAllDbData();
       if (dbData) {
-        if (dbData.patients && dbData.patients.length > 0) {
+        if (dbData.patients) {
           setPatients(dbData.patients);
         }
-        if (dbData.staff && dbData.staff.length > 0) {
+        if (dbData.staff) {
           setStaff(dbData.staff);
         }
-        if (dbData.appointments && dbData.appointments.length > 0) {
+        if (dbData.appointments) {
           setAppointments(dbData.appointments);
         }
-        if (dbData.prescriptions && dbData.prescriptions.length > 0) {
+        if (dbData.prescriptions) {
           setPrescriptions(dbData.prescriptions);
         }
         console.log('[Supabase DB Sync] Successfully loaded dynamic records from live database.');
@@ -165,43 +164,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = () => {
     void signOut();
     setCurrentUser(null);
+    setDataError('');
+    setStaff([]);
+    setPatients([]);
+    setAppointments([]);
+    setPrescriptions([]);
   };
 
 
   const checkPhoneAvailability = (phone: string): boolean => {
     const cleaned = phone.replace(/\D/g, '');
-    if (cleaned === '5550000000') return false;
     return !patients.some(p => p.phone.replace(/\D/g, '') === cleaned);
   };
 
   // 1. ADD PATIENT - Syncs to Supabase DB
-  const addPatient = (
+  const addPatient = async (
     data: Omit<Patient, 'id' | 'mrn' | 'lastVisit' | 'balance' | 'vitals'> & { phone: string }
-  ): Patient => {
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
+  ): Promise<{ patient?: Patient; error?: string }> => {
+    if (!currentUser || !['assistant', 'super_admin'].includes(currentUser.role)) return { error: 'Only an Assistant or Super Admin can register patients.' };
+    if (!data.name.trim() || data.phone.replace(/\D/g, '').length < 10 || !Number.isFinite(data.age) || data.age < 0 || data.age > 130) return { error: 'Enter a valid name, phone number, and age (0-130).' };
+    if (!checkPhoneAvailability(data.phone)) return { error: 'This phone number is already registered.' };
     const newPatient: Patient = {
       ...data,
       id: crypto.randomUUID(),
-      mrn: `P-${randomNum}`,
+      mrn: `P-${crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`,
       lastVisit: 'Just registered',
       balance: '$0.00',
       allergies: data.allergies || [],
       activeConditions: data.activeConditions || ['Initial Consult'],
       vitals: {
-        bp: '120/80',
-        heartRate: '72 bpm',
-        weight: '160 lbs',
-        temp: '98.6 °F',
-        recordedAt: 'Just now'
+        bp: 'Not recorded', heartRate: 'Not recorded', weight: 'Not recorded',
+        temp: 'Not recorded', recordedAt: 'Not recorded'
       }
     };
 
+    const result = await dbUpsertPatient(newPatient);
+    if (!result.success) return { error: result.error || 'Patient registration could not be saved.' };
     setPatients(prev => [newPatient, ...prev]);
-
-    // Asynchronously save to Supabase Database
-    dbUpsertPatient(newPatient).catch(err => console.warn('Supabase patient sync:', err));
-
-    return newPatient;
+    return { patient: newPatient };
   };
 
   // 2. ADD APPOINTMENT - Syncs to Supabase DB
@@ -211,6 +211,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!currentUser || !['assistant', 'super_admin'].includes(currentUser.role)) {
       return { error: 'Only an Assistant or Super Admin can create bookings.' };
     }
+    const patient = patients.find(patient => patient.id === data.patientId);
+    const doctor = staff.find(member => member.id === data.doctorId && member.role === 'doctor' && member.status === 'active');
+    if (!patient) return { error: 'Register and select the patient before booking an appointment.' };
+    if (!doctor) return { error: 'Select an active doctor.' };
+    if (!data.date || !data.time) return { error: 'Select an appointment date and time.' };
     const newApt: Appointment = {
       ...data,
       id: crypto.randomUUID(),
@@ -223,21 +228,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { appointment: newApt };
   };
 
-  const updateAppointmentStatus = (id: string, status: AppointmentStatus) => {
-    setAppointments(prev => {
-      const next = prev.map(a => (a.id === id ? { ...a, status } : a));
-      const target = next.find(a => a.id === id);
-      if (target) {
-        dbUpsertAppointment(target).catch(err => console.warn('Supabase status sync:', err));
-      }
-      return next;
-    });
+  const updateAppointmentStatus = async (id: string, status: AppointmentStatus) => {
+    setDataError('');
+    const result = await dbUpdateAppointmentStatus(id, status);
+    if (!result.success) { setDataError(result.error || 'Appointment status could not be saved.'); return false; }
+    setAppointments(prev => prev.map(apt => apt.id === id ? { ...apt, status } : apt));
+    return true;
   };
 
   // 3. ADD PRESCRIPTION - Syncs to Supabase DB
-  const addPrescription = (
+  const addPrescription = async (
     data: Omit<Prescription, 'id' | 'date' | 'status'>
-  ): Prescription => {
+  ): Promise<{ prescription?: Prescription; error?: string }> => {
+    if (currentUser?.role !== 'doctor' || data.doctorId !== currentUser.id) return { error: 'Only the signed-in doctor can issue prescriptions.' };
+    if (!patients.some(patient => patient.id === data.patientId)) return { error: 'Select a registered patient.' };
+    if (!data.diagnosis.trim() || !data.medications.length || data.medications.some(m => !m.drugName.trim() || !m.sig.trim() || !Number.isInteger(m.quantity) || m.quantity <= 0 || !Number.isInteger(m.refills) || m.refills < 0)) return { error: 'Enter a diagnosis and valid medication names, instructions, quantities, and refills.' };
     const newRx: Prescription = {
       ...data,
       id: crypto.randomUUID(),
@@ -249,18 +254,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'active'
     };
 
+    const result = await dbUpsertPrescription(newRx);
+    if (!result.success) return { error: result.error || 'Prescription could not be saved.' };
     setPrescriptions(prev => [newRx, ...prev]);
-
-    // Asynchronously save to Supabase Database
-    dbUpsertPrescription(newRx).catch(err => console.warn('Supabase prescription sync:', err));
-
-    return newRx;
+    return { prescription: newRx };
   };
 
   // 4. ADD STAFF MEMBER - Syncs to Supabase DB
   const addStaffMember = async (
     data: Omit<StaffMember, 'id' | 'status'>
   ): Promise<{ success: boolean; error?: string }> => {
+    if (currentUser?.role !== 'super_admin') {
+      return { success: false, error: 'Super Admin access required.' };
+    }
+    if (!['doctor', 'assistant'].includes(data.role)) {
+      return { success: false, error: 'Only Doctor and Assistant accounts can be created.' };
+    }
     const newStaff: StaffMember = {
       ...data,
       id: `new-${crypto.randomUUID()}`,
@@ -284,11 +293,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const deleteStaffMember = (id: string) => {
+  const deleteStaffMember = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    if (currentUser?.role !== 'super_admin') {
+      return { success: false, error: 'Super Admin access required.' };
+    }
     const target = staff.find(member => member.id === id);
-    if (!target || target.role === 'super_admin') return;
+    if (!target || target.role === 'super_admin') {
+      return { success: false, error: 'This account cannot be deleted.' };
+    }
+    const result = await dbDeleteStaff(id);
+    if (!result.success) return result;
+    // Refresh first so an earlier directory fetch cannot restore the deleted row.
+    await refreshFromDatabase();
     setStaff(prev => prev.filter(s => s.id !== id));
-    dbDeleteStaff(id).catch(err => console.warn('Supabase delete staff sync:', err));
+    return { success: true };
   };
 
   const addDoctorService = (serviceData: Omit<DoctorService, 'id'>): DoctorService => {
@@ -343,6 +361,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         doctorServices,
         doctorTimings,
         isDbSyncing,
+        dataError,
         login,
         logout,
         setActiveView,

@@ -37,3 +37,15 @@ npm run dev
 Never expose `SUPABASE_SERVICE_ROLE_KEY` in frontend code or commit `.env.local`.
 
 The first MVP intentionally excludes labs, messaging, advanced billing, inventory, and analytics.
+
+## Clinic workflow verification
+
+Run `node scripts/verify-clinic-flows.mjs` with the local Supabase environment configured.
+This integration check creates temporary Doctor/Assistant accounts and a test patient, checks
+registration, booking validation, appointment status, prescriptions, history reload, receipt
+reprints, and empty-screen rendering, then removes its test data. Existing users are preserved.
+It starts a temporary Vite server and tests the local API over HTTP. It does not verify browser
+layout, keyboard interaction, or the operating system print dialog.
+
+Prescription saving and appointment status changes use server-only endpoints in `api/`.
+Restart `npm run dev` after updating these endpoints or the Vite configuration.

@@ -1,3 +1,5 @@
+import { appointmentStatusHandler } from './api/appointment-status';
+import { prescriptionHandler } from './api/prescriptions';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
@@ -7,6 +9,23 @@ import { defineConfig, loadEnv, type Plugin } from 'vite';
 const localAdminApi = (env: Record<string, string>): Plugin => ({
   name: 'local-admin-users-api',
   configureServer(server) {
+    for (const [route, handler] of [['/api/prescriptions', prescriptionHandler], ['/api/appointment-status', appointmentStatusHandler]] as const) {
+      server.middlewares.use(route, async (req, res) => {
+        const response: any = {
+          setHeader: (name: string, value: string) => res.setHeader(name, value),
+          status: (status: number) => { res.statusCode = status; return response; },
+          json: (body: unknown) => res.end(JSON.stringify(body))
+        };
+        try {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {};
+          await handler({ method: req.method, headers: req.headers, body }, response, env);
+        } catch {
+          response.status(400).json({ error: 'Invalid API request.' });
+        }
+      });
+    }
     server.middlewares.use('/api/admin-users', async (req, res) => {
       res.setHeader('Content-Type', 'application/json');
       const send = (status: number, body?: unknown) => {
@@ -39,7 +58,7 @@ const localAdminApi = (env: Record<string, string>): Plugin => ({
 
         if (req.method === 'POST') {
           const { email, password, name, role, department, phone = '' } = body;
-          if (!email || !password || !name || !department || !['doctor', 'assistant'].includes(role)) {
+          if (!email?.trim() || typeof password !== 'string' || password.length < 8 || !name?.trim() || !department?.trim() || !['doctor', 'assistant'].includes(role)) {
             return send(400, { error: 'Complete Doctor or Assistant account details are required' });
           }
           const { data, error } = await admin.auth.admin.createUser({
@@ -64,7 +83,9 @@ const localAdminApi = (env: Record<string, string>): Plugin => ({
         if (target?.role === 'super_admin') return send(403, { error: 'Super Admin accounts are protected' });
         if (req.method === 'DELETE') {
           const { error } = await admin.auth.admin.deleteUser(id);
-          return error ? send(400, { error: error.message }) : send(204);
+          if (error) return send(400, { error: error.message });
+          const { error: profileError } = await admin.from('profiles').delete().eq('id', id);
+          return profileError ? send(400, { error: profileError.message }) : send(204);
         }
 
         const allowed: Record<string, unknown> = {};

@@ -18,8 +18,8 @@ export const getSupabaseConfig = (): SupabaseConfig => {
   const localKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_ANON_KEY) || '' : '';
 
   return {
-    url: localUrl || envUrl,
-    anonKey: localKey || envKey,
+    url: envUrl || localUrl,
+    anonKey: envUrl ? envKey : localKey,
   };
 };
 
@@ -74,7 +74,16 @@ export const signInWithPassword = async (email: string, password: string) => {
   const client = getSupabase();
   if (!client) return { user: null, error: 'Supabase is not configured.' };
   const { data, error } = await client.auth.signInWithPassword({ email: email.trim().toLowerCase(), password });
-  if (error || !data.user) return { user: null, error: error?.message || 'Login failed.' };
+  if (error || !data.user) {
+    const message = error?.message || 'Login failed.';
+    const connectionFailed = /failed to fetch|fetch failed|networkerror|network request failed/i.test(message);
+    return {
+      user: null,
+      error: connectionFailed
+        ? `Cannot connect to the clinic login server (${new URL(getSupabaseConfig().url).hostname}). Check your internet connection and confirm the Supabase project URL is correct and the project is running.`
+        : message,
+    };
+  }
   const { data: profile, error: profileError } = await client.from('profiles').select('*').eq('id', data.user.id).single();
   if (profileError || !profile || profile.status !== 'active') {
     await client.auth.signOut();
@@ -128,14 +137,29 @@ const profileToStaff = (row: any): StaffMember => ({
 
 const adminRequest = async (method: string, body: object) => {
   const client = getSupabase();
-  const token = (await client?.auth.getSession())?.data.session?.access_token;
-  if (!token) return { success: false, error: 'Authentication required' };
-  const response = await fetch('/api/admin-users', {
-    method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify(body)
-  });
-  const result = response.status === 204 ? {} : await response.json();
-  return response.ok ? { success: true, ...result } : { success: false, error: result.error || 'Request failed' };
+  if (!client) return { success: false, error: 'Supabase is not configured.' };
+  try {
+    const { data, error } = await client.auth.getSession();
+    if (error || !data.session) {
+      return { success: false, error: 'Your session has expired. Sign out and sign in as Super Admin again.' };
+    }
+    const response = await fetch('/api/admin-users', {
+      method, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}` },
+      body: JSON.stringify(body)
+    });
+    if (response.status === 204) return { success: true };
+    const text = await response.text();
+    let result: { error?: string; id?: string };
+    try { result = JSON.parse(text); } catch {
+      return { success: false, error: 'The account-management API is unavailable. Restart npm run dev and open the localhost URL it prints.' };
+    }
+    if (response.status === 401) {
+      return { success: false, error: 'Your session is invalid. Sign out and sign in as Super Admin again.' };
+    }
+    return response.ok ? { success: true, ...result } : { success: false, error: result.error || `Account request failed (${response.status}).` };
+  } catch {
+    return { success: false, error: 'Cannot reach the account-management server. Check that npm run dev is running and try again.' };
+  }
 };
 
 // =========================================================================
@@ -147,8 +171,12 @@ export const dbUpsertStaff = async (staffMember: StaffMember): Promise<{ success
   return adminRequest('PATCH', staffMember);
 };
 
-export const dbDeleteStaff = async (id: string): Promise<boolean> => {
-  return (await adminRequest('DELETE', { id })).success;
+export const dbDeleteStaff = async (id: string): Promise<{ success: boolean; error?: string }> => {
+  try {
+    return await adminRequest('DELETE', { id });
+  } catch {
+    return { success: false, error: 'Unable to reach the server. Please try deleting this account again.' };
+  }
 };
 
 export const dbUpsertPatient = async (patient: Patient): Promise<{ success: boolean; error?: string }> => {
@@ -162,7 +190,7 @@ export const dbUpsertPatient = async (patient: Patient): Promise<{ success: bool
       name: patient.name,
       phone: patient.phone,
       age: patient.age || 0,
-      dob: patient.dob || '',
+      dob: patient.dob || null,
       gender: patient.gender || 'Other',
       blood_type: patient.bloodType || 'Unknown',
       address: patient.address || '',
@@ -195,15 +223,19 @@ export const dbUpsertAppointment = async (apt: Appointment): Promise<{ success: 
   try {
     const { data: sessionData } = await client.auth.getSession();
     if (!sessionData.session?.user) return { success: false, error: 'Your login session has expired. Please sign in again.' };
+    const { data: patient, error: patientError } = await client.from('patients').select('id,name,phone,age').eq('id', apt.patientId).single();
+    if (patientError || !patient) return { success: false, error: 'This patient is not registered. Register the patient before booking.' };
+    const { data: doctor, error: doctorError } = await client.from('profiles').select('name,department,role,status').eq('id', apt.doctorId).single();
+    if (doctorError || doctor?.role !== 'doctor' || doctor.status !== 'active') return { success: false, error: 'The selected doctor is not active.' };
     const payload = {
       id: apt.id,
       patient_id: apt.patientId,
-      patient_name: apt.patientName,
-      patient_phone: apt.patientPhone,
-      patient_age: apt.patientAge || 0,
+      patient_name: patient.name,
+      patient_phone: patient.phone,
+      patient_age: patient.age,
       doctor_id: apt.doctorId,
-      doctor_name: apt.doctorName,
-      department: apt.department,
+      doctor_name: doctor.name,
+      department: doctor.department,
       reason: apt.reason,
       date: apt.date,
       time: apt.time,
@@ -225,61 +257,66 @@ export const dbUpsertAppointment = async (apt: Appointment): Promise<{ success: 
   }
 };
 
+export const dbUpdateAppointmentStatus = async (id: string, status: Appointment['status']): Promise<{ success: boolean; error?: string }> => {
+  const token = (await getSupabase()?.auth.getSession())?.data.session?.access_token;
+  if (!token) return { success: false, error: 'Please sign in again.' };
+  try {
+    const response = await fetch('/api/appointment-status', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ id, status })
+    });
+    const result = await response.json();
+    return response.ok ? { success: true } : { success: false, error: result.error || 'Status update failed.' };
+  } catch { return { success: false, error: 'Cannot reach the appointment server. Restart npm run dev and try again.' }; }
+};
+
 export const dbUpsertPrescription = async (rx: Prescription): Promise<{ success: boolean; error?: string }> => {
   const client = getSupabase();
-  if (!client) return { success: false, error: 'Supabase client not configured' };
-
+  const token = (await client?.auth.getSession())?.data.session?.access_token;
+  if (!token) return { success: false, error: 'Please sign in as Doctor again.' };
   try {
-    const { data: visit, error: visitError } = await client.from('patient_visits').insert({
-      patient_id: rx.patientId,
-      doctor_id: rx.doctorId,
-      doctor_name: rx.doctorName,
-      diagnosis: rx.diagnosis,
-      notes: rx.notes || '',
-      visit_date: new Date().toISOString().slice(0, 10)
-    }).select('id').single();
-    if (visitError) return { success: false, error: visitError.message };
-    const payload = {
-      id: rx.id,
-      patient_id: rx.patientId,
-      patient_name: rx.patientName,
-      patient_mrn: rx.patientMrn,
-      patient_dob: rx.patientDob || '',
-      doctor_id: rx.doctorId,
-      doctor_name: rx.doctorName,
-      doctor_avatar: rx.doctorAvatar || '',
-      date: rx.date,
-      diagnosis: rx.diagnosis,
-      medications: rx.medications || [],
-      status: rx.status || 'active',
-      notes: rx.notes || '',
-      visit_id: visit.id,
-      updated_at: new Date().toISOString(),
-    };
-
-    const { error } = await client.from('prescriptions').upsert([payload]);
-    if (error) {
-      console.error('Error saving prescription to Supabase:', error);
-      return { success: false, error: error.message };
-    }
-    return { success: true };
-  } catch (err: any) {
-    console.error('Exception saving prescription to Supabase:', err);
-    return { success: false, error: err?.message || 'Unknown network error' };
+    const response = await fetch('/api/prescriptions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(rx)
+    });
+    if (!response.headers.get('content-type')?.includes('application/json')) return { success: false, error: 'Prescription API is unavailable. Restart npm run dev.' };
+    const result = await response.json();
+    return response.ok ? { success: true } : { success: false, error: result.error || 'Prescription could not be saved.' };
+  } catch {
+    return { success: false, error: 'Cannot reach the prescription server. Check your connection and try again.' };
   }
+};
+
+export const receiptNumber = (appointmentId: string) => `RCP-${appointmentId.replace(/-/g, '').toUpperCase()}`;
+
+export const dbGetReceipt = async (appointmentId: string) => {
+  const client = getSupabase();
+  if (!client) throw new Error('Supabase is not configured.');
+  const { data, error } = await client.from('receipts').select('*').eq('appointment_id', appointmentId).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data;
 };
 
 export const dbSaveReceipt = async (appointment: Appointment, serviceName: string, amountPaid: number) => {
   const client = getSupabase();
   if (!client) return { success: false, error: 'Supabase client not configured' };
-  const { data: session } = await client.auth.getSession();
-  const receiptNo = `RCP-${appointment.id.replace(/\D/g, '').slice(-8) || appointment.id.slice(0, 8).toUpperCase()}`;
-  const { error } = await client.from('receipts').upsert({
-    receipt_no: receiptNo, appointment_id: appointment.id, patient_id: appointment.patientId,
-    service_name: serviceName, amount_paid: amountPaid, payment_method: 'Cash',
-    payment_status: 'Paid', printed_by: session.session?.user.id
-  }, { onConflict: 'appointment_id' });
-  return { success: !error, error: error?.message, receiptNo };
+  if (!Number.isFinite(amountPaid) || amountPaid < 0) return { success: false, error: 'Enter a valid payment amount.' };
+  try {
+    const { data: session } = await client.auth.getSession();
+    if (!session.session) return { success: false, error: 'Please sign in again.' };
+    const existing = await dbGetReceipt(appointment.id);
+    if (existing) return { success: true, receipt: existing };
+    const { data: booking, error: bookingError } = await client.from('appointments').select('patient_id').eq('id', appointment.id).single();
+    if (bookingError || !booking || booking.patient_id !== appointment.patientId) return { success: false, error: 'Save a valid patient booking before issuing a receipt.' };
+    const { data, error } = await client.from('receipts').insert({
+      receipt_no: receiptNumber(appointment.id), appointment_id: appointment.id, patient_id: booking.patient_id,
+      service_name: serviceName, amount_paid: amountPaid, payment_method: 'Cash',
+      payment_status: 'Paid', printed_by: session.session.user.id
+    }).select('*').single();
+    if (error?.code === '23505') return { success: true, receipt: await dbGetReceipt(appointment.id) };
+    return { success: !error, error: error?.message, receipt: data };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : 'Receipt could not be saved.' };
+  }
 };
 
 // =========================================================================

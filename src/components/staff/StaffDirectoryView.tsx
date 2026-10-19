@@ -7,6 +7,8 @@ import { StaffRoleIcon } from './StaffRoleIcon';
 export const StaffDirectoryView: React.FC = () => {
   const { staff, updateStaffMember, deleteStaffMember, setActiveView } = useApp();
   const [filter, setFilter] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   // Modals state
   const [viewingMember, setViewingMember] = useState<StaffMember | null>(null);
@@ -48,11 +50,23 @@ export const StaffDirectoryView: React.FC = () => {
     setEditingMember(null);
   };
 
-  const handleConfirmDelete = () => {
-    if (!deletingMember || deletingMember.role === 'super_admin') return;
-    deleteStaffMember(deletingMember.id);
-    setDeletingMember(null);
-    setViewingMember(null);
+  const handleConfirmDelete = async () => {
+    if (!deletingMember || deletingMember.role === 'super_admin' || isDeleting) return;
+    setIsDeleting(true);
+    setDeleteError('');
+    try {
+      const result = await deleteStaffMember(deletingMember.id);
+      if (!result.success) {
+        setDeleteError(result.error || 'Unable to delete this account.');
+        return;
+      }
+      setDeletingMember(null);
+      setViewingMember(null);
+    } catch {
+      setDeleteError('Unable to delete this account. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const filteredStaff = staff.filter(
@@ -238,7 +252,7 @@ export const StaffDirectoryView: React.FC = () => {
                         </button>
 
                         <button
-                          onClick={() => member.role !== 'super_admin' && setDeletingMember(member)}
+                          onClick={() => { if (member.role !== 'super_admin') { setDeleteError(''); setDeletingMember(member); } }}
                           disabled={member.role === 'super_admin'}
                           title={member.role === 'super_admin' ? 'Super Admin accounts cannot be deleted' : 'Delete account'}
                           className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[11px] rounded border border-rose-200 transition-colors flex items-center gap-1 disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed disabled:hover:bg-slate-100"
@@ -450,6 +464,7 @@ export const StaffDirectoryView: React.FC = () => {
             </div>
 
             <div>
+              {deleteError && <p role="alert" className="mb-3 text-xs text-rose-700">{deleteError}</p>}
               <h3 className="font-bold text-slate-900 text-base">Delete Staff Member?</h3>
               <p className="text-xs text-slate-500 mt-1">
                 Are you sure you want to delete <strong className="text-slate-800">{deletingMember.name}</strong> ({deletingMember.role})? This operation will remove their access privileges.
@@ -459,12 +474,14 @@ export const StaffDirectoryView: React.FC = () => {
             <div className="flex gap-2 pt-2">
               <button
                 onClick={handleConfirmDelete}
+                disabled={isDeleting}
                 className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded transition-colors shadow-xs"
               >
-                Yes, Delete Personnel
+                {isDeleting ? 'Deleting?' : 'Yes, Delete Personnel'}
               </button>
               <button
                 onClick={() => setDeletingMember(null)}
+                disabled={isDeleting}
                 className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded transition-colors"
               >
                 Cancel

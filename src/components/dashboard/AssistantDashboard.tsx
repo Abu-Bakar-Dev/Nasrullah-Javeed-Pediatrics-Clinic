@@ -37,6 +37,13 @@ export const AssistantDashboard: React.FC = () => {
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <button
+              onClick={() => setActiveView('register_staff')}
+              className="flex-1 sm:flex-initial bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5"
+            >
+              <span className="material-symbols-outlined text-base">person_add</span>
+              Add Doctor / Assistant
+            </button>
+            <button
               onClick={() => setActiveView('settings')}
               className="flex-1 sm:flex-initial bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2 px-4 rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-sm"
             >

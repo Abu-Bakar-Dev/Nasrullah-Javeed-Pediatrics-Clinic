@@ -18,15 +18,21 @@ export const LoginView: React.FC = () => {
       return;
     }
 
+    setError('');
     setIsLoading(true);
+    try {
     const res = await login(role, username, password);
-    setIsLoading(false);
     if (!res.success) {
       setError(res.error || 'Invalid credentials or staff member not found.');
       return;
     }
 
     setError('');
+    } catch {
+      setError('Cannot reach the clinic login server. Check your connection and Supabase configuration.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const setRoleTab = (selectedRole: UserRole) => {

@@ -5,20 +5,14 @@ import { MedicationItem } from '../../types';
 export const NewPrescriptionView: React.FC = () => {
   const { selectedPatientId, getPatientById, patients, addPrescription, currentUser, setActiveView } = useApp();
 
-  const patient = getPatientById(selectedPatientId || '') || patients[2] || patients[0]; // Fallback Jane Doe / Robert
+  const patient = getPatientById(selectedPatientId || '');
 
-  const [diagnosis, setDiagnosis] = useState('Acute Bronchitis (J20.9)');
+  const [diagnosis, setDiagnosis] = useState('');
   const [visitNotes, setVisitNotes] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState('');
   const [medications, setMedications] = useState<MedicationItem[]>([
-    {
-      id: 'med-1',
-      drugName: 'Azithromycin 250mg tab',
-      route: 'Oral (PO)',
-      frequency: 'Once Daily (QD)',
-      sig: 'Take 2 tablets on day 1, then 1 tablet daily for 4 days.',
-      quantity: 6,
-      refills: 0
-    }
+    { id: 'med-1', drugName: '', route: 'Oral (PO)', frequency: '', sig: '', quantity: 1, refills: 0 }
   ]);
 
   const handleMedChange = (index: number, field: keyof MedicationItem, value: any) => {
@@ -47,29 +41,44 @@ export const NewPrescriptionView: React.FC = () => {
     setMedications(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!diagnosis || medications.some(m => !m.drugName.trim())) return;
+    if (isSaving || !patient || !currentUser) return;
+    setError('');
+    setIsSaving(true);
+    try {
+      const result = await addPrescription({
+        patientId: patient.id,
+        patientName: patient.name,
+        patientMrn: patient.mrn,
+        patientDob: patient.dob,
+        doctorId: currentUser.id,
+        doctorName: currentUser.name,
+        doctorAvatar: currentUser?.avatarUrl,
+        diagnosis,
+        medications,
+        notes: visitNotes
+      });
 
-    addPrescription({
-      patientId: patient.id,
-      patientName: patient.name,
-      patientMrn: patient.mrn,
-      patientDob: patient.dob,
-      doctorId: currentUser?.id || 'staff-1',
-      doctorName: currentUser?.name || 'Dr. Sarah Jenkins',
-      doctorAvatar: currentUser?.avatarUrl,
-      diagnosis,
-      medications,
-      notes: visitNotes
-    });
-
-    window.print();
-    setActiveView('patient_profile');
+      if (!result.prescription) { setError(result.error || 'Unable to save prescription.'); return; }
+      document.body.classList.add('printing-prescription');
+      window.print();
+      document.body.classList.remove('printing-prescription');
+      setActiveView('patient_profile');
+    } catch { setError('Prescription could not be saved. Please try again.'); }
+    finally { setIsSaving(false); }
   };
 
+  if (!patient) return (
+    <div className="p-6 bg-white rounded-xl border border-slate-200 space-y-3">
+      <p>Select a registered patient from the patient directory before prescribing.</p>
+      <button onClick={() => setActiveView('patients')} className="text-emerald-700 underline">Open Patient Directory</button>
+    </div>
+  );
+
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div id="printable-prescription" className="max-w-4xl mx-auto space-y-6">
+      {error && <p role="alert" className="p-3 text-rose-700 bg-rose-50 rounded">{error}</p>}
       <div className="mb-2">
         <h2 className="font-headline-lg text-2xl md:text-3xl font-bold text-primary">New Electronic Prescription</h2>
         <p className="font-body-md text-xs text-on-surface-variant mt-1">
@@ -100,7 +109,7 @@ export const NewPrescriptionView: React.FC = () => {
             <div>
               <label className="text-outline font-semibold block mb-0.5">DOB / Age</label>
               <div className="text-xs text-on-surface-variant bg-surface-container-low p-2 rounded-lg">
-                {patient.dob} ({patient.age}y)
+                {patient.dob || 'Not recorded'} ({patient.age}y)
               </div>
             </div>
           </div>
@@ -275,10 +284,11 @@ export const NewPrescriptionView: React.FC = () => {
             </button>
             <button
               type="submit"
+              disabled={isSaving}
               className="px-6 py-2.5 rounded-xl bg-primary text-on-primary hover:bg-surface-tint font-semibold shadow-sm flex items-center gap-2 active:scale-98"
             >
               <span className="material-symbols-outlined text-base">print</span>
-              Save & Print Prescription
+              {isSaving ? 'Saving...' : 'Save & Print Prescription'}
             </button>
           </div>
         </form>
