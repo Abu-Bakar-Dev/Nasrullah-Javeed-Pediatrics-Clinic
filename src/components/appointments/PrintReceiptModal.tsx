@@ -1,3 +1,4 @@
+import { routineConsultationFee } from '../../config/consultationFees';
 import React, { useEffect, useState } from 'react';
 import { Appointment, DoctorService } from '../../types';
 import { useApp } from '../../context/AppContext';
@@ -39,7 +40,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
     minute: '2-digit'
   });
 
-  const amount = Number(savedReceipt?.amount_paid ?? service?.price ?? 100);
+  const amount = Number(savedReceipt?.amount_paid ?? routineConsultationFee(appointment.reason) ?? service?.price ?? 1000);
   const serviceTitle = savedReceipt?.service_name || service?.name || appointment.reason || 'General Health Consultation';
 
   const handlePrint = async () => {
@@ -165,19 +166,19 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
                 <thead className="bg-slate-100 font-bold text-slate-700 uppercase text-[10px] border-b border-slate-200">
                   <tr>
                     <th className="p-2.5">Service Description</th>
-                    <th className="p-2.5 text-right">Fee ($)</th>
+                    <th className="p-2.5 text-right">Fee (PKR)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
                   <tr>
                     <td className="p-2.5 text-slate-800">{serviceTitle}</td>
-                    <td className="p-2.5 text-right font-mono font-bold text-slate-900">${amount.toFixed(2)}</td>
+                    <td className="p-2.5 text-right font-mono font-bold text-slate-900">PKR {amount.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                 </tbody>
                 <tfoot className="bg-slate-50 border-t border-slate-200 font-bold text-slate-900">
                   <tr>
                     <td className="p-2.5">Total Amount Charged:</td>
-                    <td className="p-2.5 text-right font-mono text-emerald-700 text-sm">${amount.toFixed(2)}</td>
+                    <td className="p-2.5 text-right font-mono text-emerald-700 text-sm">PKR {amount.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   </tr>
                 </tfoot>
               </table>

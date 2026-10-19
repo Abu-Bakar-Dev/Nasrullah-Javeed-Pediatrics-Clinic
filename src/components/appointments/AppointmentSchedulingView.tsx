@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { Patient, Appointment } from '../../types';
 import { PrintReceiptModal } from './PrintReceiptModal';
+import { ROUTINE_CONSULTATION_FEES, routineConsultationLabel } from '../../config/consultationFees';
 import { formatPhoneNumber } from '../../utils/phoneFormatter';
 
 export const AppointmentSchedulingView: React.FC = () => {
@@ -16,11 +17,10 @@ export const AppointmentSchedulingView: React.FC = () => {
 
   // Form Details
   const [providerId, setProviderId] = useState('');
-  const [visitReason, setVisitReason] = useState('Routine Checkup');
+  const [consultationFee, setConsultationFee] = useState<number>(1000);
   const [apptDate, setApptDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [apptTime, setApptTime] = useState('');
   const [notes, setNotes] = useState('');
-  const [selectedServiceId, setSelectedServiceId] = useState<string>('');
   const [bookingError, setBookingError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -70,7 +70,7 @@ export const AppointmentSchedulingView: React.FC = () => {
         doctorId: providerId,
         doctorName: selectedDoctor.name,
         department: selectedDoctor.department,
-        reason: visitReason,
+        reason: routineConsultationLabel(consultationFee),
         date: apptDate,
         time: apptTime,
         notes
@@ -203,8 +203,6 @@ export const AppointmentSchedulingView: React.FC = () => {
                   value={providerId}
                   onChange={e => {
                     setProviderId(e.target.value);
-                    setSelectedServiceId('');
-                    setVisitReason('Routine Checkup');
                   }}
                   disabled={doctors.length === 0}
                   className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500"
@@ -215,22 +213,15 @@ export const AppointmentSchedulingView: React.FC = () => {
               </div>
 
               <div>
-                <label className="font-bold text-slate-700 block mb-1" htmlFor="booking-service">Consultation Service</label>
+                <label className="font-bold text-slate-700 block mb-1" htmlFor="booking-service">Consultation Fee (PKR)</label>
                 <select
                   id="booking-service"
-                  value={selectedServiceId}
-                  onChange={e => {
-                    setSelectedServiceId(e.target.value);
-                    const srv = doctorServices.find(s => s.id === e.target.value);
-                    setVisitReason(srv?.name || 'Routine Checkup');
-                  }}
+                  value={consultationFee}
+                  onChange={e => setConsultationFee(Number(e.target.value))}
                   className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500"
                 >
-                  <option value="">Standard Routine Consultation ($100)</option>
-                  {doctorServices.filter(s => s.doctorId === providerId).map(s => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} (${s.price})
-                    </option>
+                  {ROUTINE_CONSULTATION_FEES.map(fee => (
+                    <option key={fee} value={fee}>PKR {fee.toLocaleString('en-PK')}</option>
                   ))}
                 </select>
               </div>
