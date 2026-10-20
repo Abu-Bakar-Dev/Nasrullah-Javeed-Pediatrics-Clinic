@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { matchesPatientIdentifier } from '../../utils/patientLookup';
 
 export const PatientDirectory: React.FC = () => {
   const { patients, appointments, currentUser, setSelectedPatientId, setActiveView } = useApp();
@@ -23,8 +24,7 @@ export const PatientDirectory: React.FC = () => {
   const filtered = roleFilteredPatients.filter(
     p =>
       p.name.toLowerCase().includes(filterText.toLowerCase()) ||
-      p.mrn.toLowerCase().includes(filterText.toLowerCase()) ||
-      p.phone.includes(filterText) ||
+      matchesPatientIdentifier(p, filterText) ||
       p.activeConditions.some(c => c.toLowerCase().includes(filterText.toLowerCase()))
   );
 
@@ -70,7 +70,7 @@ export const PatientDirectory: React.FC = () => {
               type="text"
               value={filterText}
               onChange={e => setFilterText(e.target.value)}
-              placeholder="Search Name, MRN, Phone, Condition..."
+              placeholder="Search Name, Patient Token, Phone, Condition..."
               className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
             />
           </div>
@@ -84,7 +84,7 @@ export const PatientDirectory: React.FC = () => {
             <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
               <tr>
                 <th className="py-2.5 px-4">Patient Name & Demographics</th>
-                <th className="py-2.5 px-4">MRN & Contact</th>
+                <th className="py-2.5 px-4">Patient Token & Contact</th>
                 <th className="py-2.5 px-4">Age / DOB</th>
                 <th className="py-2.5 px-4">Active Medical Conditions</th>
                 <th className="py-2.5 px-4">Latest Vitals</th>
@@ -107,7 +107,7 @@ export const PatientDirectory: React.FC = () => {
                     </div>
                   </td>
                   <td className="py-3 px-4">
-                    <div className="font-mono text-xs font-bold text-slate-800">{patient.mrn}</div>
+                    <div className="font-mono text-xs font-bold text-slate-800">Token: {patient.mrn}</div>
                     <div className="text-[11px] text-slate-500">{patient.phone}</div>
                   </td>
                   <td className="py-3 px-4 text-xs text-slate-600">

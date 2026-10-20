@@ -77,7 +77,7 @@ export const PatientRegistrationView: React.FC = () => {
           <div className="mb-6">
             <h1 className="font-headline-lg text-2xl font-bold text-on-surface mb-1">Patient Registration</h1>
             <p className="font-body-md text-xs text-on-surface-variant">
-              Enter patient details to generate a new electronic medical record.
+              A unique patient token is generated automatically. Use it or the phone number to find this patient on future visits.
             </p>
           </div>
 
@@ -254,8 +254,9 @@ export const PatientRegistrationView: React.FC = () => {
           </p>
 
           <div className="p-4 bg-surface-container-low rounded-xl border border-outline-variant/60 font-mono text-xs w-full max-w-sm">
-            <div className="text-outline text-[10px] uppercase tracking-wider mb-1">Generated MRN</div>
-            <div className="text-primary font-bold text-lg">{createdPatientMrn}</div>
+            <div className="text-outline text-[10px] uppercase tracking-wider mb-1">Permanent Patient Token</div>
+            <div className="text-primary font-bold text-lg select-all">{createdPatientMrn}</div>
+            <p className="mt-2 font-sans text-xs text-on-surface-variant">Keep this token for future visits. It is also printed on appointment receipts.</p>
           </div>
 
           <div className="flex flex-col sm:flex-row gap-3 w-full max-w-md pt-2">

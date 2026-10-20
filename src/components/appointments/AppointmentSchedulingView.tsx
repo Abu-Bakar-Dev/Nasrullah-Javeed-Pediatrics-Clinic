@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { Patient, Appointment } from '../../types';
 import { PrintReceiptModal } from './PrintReceiptModal';
 import { ROUTINE_CONSULTATION_FEES, routineConsultationLabel } from '../../config/consultationFees';
-import { formatPhoneNumber } from '../../utils/phoneFormatter';
+import { matchesPatientIdentifier } from '../../utils/patientLookup';
 
 export const AppointmentSchedulingView: React.FC = () => {
   const { patients, staff, appointments, addAppointment, setActiveView, doctorServices, currentUser, selectedPatientId } = useApp();
@@ -11,8 +11,8 @@ export const AppointmentSchedulingView: React.FC = () => {
   // Selected appointment for printing receipt modal
   const [selectedReceiptApt, setSelectedReceiptApt] = useState<Appointment | null>(null);
 
-  // Search Phone
-  const [searchPhone, setSearchPhone] = useState(() => patients.find(p => p.id === selectedPatientId)?.phone || '');
+  // Search by permanent patient token or phone number
+  const [patientQuery, setPatientQuery] = useState(() => patients.find(p => p.id === selectedPatientId)?.phone || '');
   const [foundPatient, setFoundPatient] = useState<Patient | null>(() => patients.find(p => p.id === selectedPatientId) || null);
 
   // Form Details
@@ -27,26 +27,25 @@ export const AppointmentSchedulingView: React.FC = () => {
   const doctors = staff.filter(member => member.role === 'doctor' && member.status === 'active');
   const canBook = currentUser?.role === 'assistant' || currentUser?.role === 'super_admin';
   const selectedPatient = foundPatient && patients.find(patient => patient.id === foundPatient.id);
-  const searchDigits = searchPhone.replace(/\D/g, '');
-  const matchingPatients = searchDigits.length >= 3
+  const canSearch = patientQuery.trim().length >= 3;
+  const matchingPatients = canSearch
     ? patients
-        .filter(patient => patient.phone.replace(/\D/g, '').includes(searchDigits))
+        .filter(patient => matchesPatientIdentifier(patient, patientQuery))
         .slice(0, 8)
     : [];
   useEffect(() => {
     if (!providerId && doctors[0]) setProviderId(doctors[0].id);
   }, [staff, providerId]);
 
-  const handleSearchPhone = () => {
+  const handleSearchPatient = () => {
     setBookingError('');
-    const cleaned = searchPhone.replace(/\D/g, '');
-    if (cleaned.length < 3) { setFoundPatient(null); setBookingError('Enter at least 3 phone-number digits.'); return; }
-    const matches = patients.filter(pat => pat.phone.replace(/\D/g, '').includes(cleaned));
+    if (!canSearch) { setFoundPatient(null); setBookingError('Enter at least 3 characters of a patient token or phone number.'); return; }
+    const matches = patients.filter(pat => matchesPatientIdentifier(pat, patientQuery));
     if (matches.length > 1) { setFoundPatient(null); setBookingError('Multiple patients match. Select the correct patient from the results.'); return; }
     const p = matches[0];
     if (p) {
       setFoundPatient(p);
-    } else { setFoundPatient(null); setBookingError('No registered patient was found with that phone number.'); }
+    } else { setFoundPatient(null); setBookingError('No registered patient was found with that token or phone number.'); }
   };
 
   const handleCreateAppointment = async (e: React.FormEvent) => {
@@ -113,21 +112,21 @@ export const AppointmentSchedulingView: React.FC = () => {
             <div className="flex gap-2 items-end">
               <div className="flex-1">
                 <label htmlFor="booking-patient" className="text-[11px] font-bold text-slate-600 block mb-1">
-                  Search Registered Patient by Phone
+                  Search by Patient Token or Phone
                 </label>
                 <input
                   id="booking-patient"
                   type="text"
-                  value={searchPhone}
+                  value={patientQuery}
                   onChange={e => {
-                    setSearchPhone(formatPhoneNumber(e.target.value));
+                    setPatientQuery(e.target.value);
                     setFoundPatient(null);
                     setBookingError('');
                   }}
-                  placeholder="0333-7645673"
+                  placeholder="Patient token (P-...) or 0333-7645673"
                   className="w-full bg-slate-50 border border-slate-200 rounded px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-emerald-500"
                 />
-                {searchDigits.length >= 3 && !foundPatient && (
+                {canSearch && !foundPatient && (
                   <div className="mt-1.5 max-h-52 overflow-y-auto rounded border border-slate-200 bg-white shadow-lg divide-y divide-slate-100">
                     {matchingPatients.length > 0 ? matchingPatients.map(patient => (
                       <button
@@ -135,7 +134,7 @@ export const AppointmentSchedulingView: React.FC = () => {
                         type="button"
                         onClick={() => {
                           setFoundPatient(patient);
-                          setSearchPhone(formatPhoneNumber(patient.phone));
+                          setPatientQuery(patient.mrn);
                           setBookingError('');
                         }}
                         className="w-full px-3 py-2.5 text-left hover:bg-emerald-50 transition-colors flex items-center justify-between gap-3"
@@ -144,17 +143,17 @@ export const AppointmentSchedulingView: React.FC = () => {
                           <p className="font-bold text-xs text-slate-800 truncate">{patient.name}</p>
                           <p className="text-[11px] text-slate-500 font-mono">{patient.phone}</p>
                         </div>
-                        <span className="text-[10px] font-bold text-emerald-700 shrink-0">{patient.mrn}</span>
+                        <span className="text-[10px] font-bold text-emerald-700 shrink-0">Token: {patient.mrn}</span>
                       </button>
                     )) : (
-                      <p className="px-3 py-3 text-xs text-slate-500">No registered patient matches these digits.</p>
+                      <p className="px-3 py-3 text-xs text-slate-500">No registered patient matches this token or phone number.</p>
                     )}
                   </div>
                 )}
               </div>
               <button
                 type="button"
-                onClick={handleSearchPhone}
+                onClick={handleSearchPatient}
                 className="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded text-xs font-bold"
               >
                 Search
@@ -175,7 +174,7 @@ export const AppointmentSchedulingView: React.FC = () => {
                   <div>
                     <h4 className="font-bold text-slate-900">{foundPatient.name}</h4>
                     <p className="text-[11px] text-slate-500">
-                      MRN: <span className="font-mono text-emerald-800 font-bold">{foundPatient.mrn}</span> • Phone: {foundPatient.phone}
+                      Patient Token: <span className="font-mono text-emerald-800 font-bold">{foundPatient.mrn}</span> • Phone: {foundPatient.phone}
                     </p>
                   </div>
                 </div>

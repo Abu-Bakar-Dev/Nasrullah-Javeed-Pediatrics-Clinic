@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { matchesPatientIdentifier } from '../../utils/patientLookup';
 import { StaffRoleIcon } from '../staff/StaffRoleIcon';
 
 export const TopAppBar: React.FC = () => {
@@ -11,8 +12,7 @@ export const TopAppBar: React.FC = () => {
     ? patients.filter(
         p =>
           p.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.mrn.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          p.phone.includes(searchQuery)
+          matchesPatientIdentifier(p, searchQuery)
       )
     : [];
 
@@ -48,7 +48,7 @@ export const TopAppBar: React.FC = () => {
                 setShowSearchDropdown(true);
               }}
               onFocus={() => setShowSearchDropdown(true)}
-              placeholder="Search patients by name, MRN..."
+              placeholder="Search patients by name, Patient Token..."
               className="bg-transparent border-none focus:outline-none text-xs text-slate-800 w-full placeholder:text-slate-400"
             />
             {searchQuery && (
@@ -87,7 +87,7 @@ export const TopAppBar: React.FC = () => {
                     <div>
                       <div className="font-semibold text-xs text-slate-800">{patient.name}</div>
                       <div className="text-[11px] text-slate-500 font-mono">
-                        MRN: {patient.mrn} • {patient.phone}
+                        Patient Token: {patient.mrn} • {patient.phone}
                       </div>
                     </div>
                     <span className="material-symbols-outlined text-slate-400 text-sm">chevron_right</span>

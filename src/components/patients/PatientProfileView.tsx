@@ -84,7 +84,7 @@ export const PatientProfileView: React.FC = () => {
           <div>
             <div className="flex items-center gap-2">
               <span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-bold font-mono text-[10px] rounded border border-slate-200">
-                MRN: {patient.mrn}
+                Patient Token: {patient.mrn}
               </span>
               <span className="text-xs text-slate-400">•</span>
               <span className="text-xs font-semibold text-emerald-600">Active Patient</span>

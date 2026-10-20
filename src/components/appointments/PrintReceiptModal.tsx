@@ -117,7 +117,7 @@ export const PrintReceiptModal: React.FC<PrintReceiptModalProps> = ({
                 <span className="font-bold text-slate-900">{appointment.patientName}</span>
               </div>
               <div>
-                <span className="text-slate-500 block text-[10px]">MRN #:</span>
+                <span className="text-slate-500 block text-[10px]">Patient Token:</span>
                 <span className="font-mono font-bold text-emerald-700">{patient?.mrn || 'Unavailable'}</span>
               </div>
               <div>
