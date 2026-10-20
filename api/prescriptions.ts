@@ -20,6 +20,9 @@ export async function prescriptionHandler(req: any, res: any, env: Record<string
     }
     const { data: patient } = await admin.from('patients').select('id,name,mrn,dob').eq('id', rx.patientId).single();
     if (!patient) return res.status(400).json({ error: 'Select a registered patient before prescribing.' });
+    const { data: assignment, error: assignmentError } = await admin.from('appointments').select('id').eq('patient_id', patient.id).eq('doctor_id', auth.user.id).limit(1).maybeSingle();
+    if (assignmentError) return res.status(400).json({ error: assignmentError.message });
+    if (!assignment) return res.status(403).json({ error: 'You can only prescribe for patients assigned to you.' });
     const { data: existing, error: existingError } = await admin.from('prescriptions').select('id,doctor_id').eq('id', rx.id).maybeSingle();
     if (existingError) return res.status(400).json({ error: existingError.message });
     if (existing) return existing.doctor_id === auth.user.id ? res.status(200).json({ success: true }) : res.status(403).json({ error: 'Prescription belongs to another doctor.' });

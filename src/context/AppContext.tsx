@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import {
   User,
   UserRole,
@@ -63,6 +63,8 @@ interface AppContextType {
   doctorTimings: DoctorTiming[];
   isDbSyncing: boolean;
   dataError: string;
+  connectionStatus: 'connecting' | 'connected' | 'disconnected';
+  lastSyncedAt: number | null;
   
   // Actions
   login: (role: UserRole, email?: string, password?: string) => Promise<{ success: boolean; error?: string }>;
@@ -107,6 +109,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [dataError, setDataError] = useState('');
   const [isDbSyncing, setIsDbSyncing] = useState<boolean>(false);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const currentUserRef = useRef(currentUser);
+  currentUserRef.current = currentUser;
+  const sessionGeneration = useRef(0);
+  const mutationGeneration = useRef(0);
+  const refreshInProgress = useRef(false);
 
   const [patients, setPatients] = useState<Patient[]>([]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -119,40 +128,60 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Restore the authenticated Supabase session. Clinical records always come from the DB.
   useEffect(() => {
-    getAuthenticatedProfile().then(profile => profile && setCurrentUser(profile));
+    const generation = sessionGeneration.current;
+    getAuthenticatedProfile().then(profile => {
+      if (profile && generation === sessionGeneration.current) setCurrentUser(profile);
+    }).catch(() => setConnectionStatus('disconnected'));
   }, []);
 
   // Fetch live Supabase DB records on mount if credentials are configured
   const refreshFromDatabase = async () => {
-    if (!isSupabaseConfigured()) return;
+    const user = currentUserRef.current;
+    if (!user || !isSupabaseConfigured() || refreshInProgress.current) return;
+    refreshInProgress.current = true;
+    const generation = sessionGeneration.current;
+    const mutation = mutationGeneration.current;
     setIsDbSyncing(true);
     try {
       const dbData = await fetchAllDbData();
+      if (generation !== sessionGeneration.current || currentUserRef.current?.id !== user.id || mutation !== mutationGeneration.current) return;
       if (dbData) {
-        if (dbData.patients) {
-          setPatients(dbData.patients);
-        }
-        if (dbData.staff) {
-          setStaff(dbData.staff);
-        }
-        if (dbData.appointments) {
-          setAppointments(dbData.appointments);
-        }
-        if (dbData.prescriptions) {
-          setPrescriptions(dbData.prescriptions);
-        }
-        console.log('[Supabase DB Sync] Successfully loaded dynamic records from live database.');
+        const profile = dbData.staff.find(s => s.id === user.id && s.status === 'active');
+        if (!profile) { logout(); return; }
+        const assigned = profile.role === 'doctor' ? dbData.appointments.filter(a => a.doctorId === profile.id) : dbData.appointments;
+        const patientIds = new Set(assigned.map(a => a.patientId));
+        setPatients(profile.role === 'doctor' ? dbData.patients.filter(p => patientIds.has(p.id)) : dbData.patients);
+        setStaff(dbData.staff);
+        setAppointments(assigned);
+        setPrescriptions(profile.role === 'doctor' ? dbData.prescriptions.filter(rx => patientIds.has(rx.patientId)) : dbData.prescriptions);
+        setCurrentUser(profile);
+        setConnectionStatus('connected'); setLastSyncedAt(Date.now());
       }
     } catch (err) {
       console.warn('Could not sync from Supabase DB:', err);
+      if (generation === sessionGeneration.current) setConnectionStatus('disconnected');
     } finally {
       setIsDbSyncing(false);
+      refreshInProgress.current = false;
     }
   };
 
-  useEffect(() => { if (currentUser) refreshFromDatabase(); }, [currentUser?.id]);
+  useEffect(() => {
+    if (!currentUser) return;
+    const refresh = () => void refreshFromDatabase();
+    refresh();
+    const timer = window.setInterval(refresh, 2000);
+    window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      clearInterval(timer); window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh); document.removeEventListener('visibilitychange', refresh);
+    };
+  }, [currentUser?.id]);
 
   const login = async (role: UserRole, email = '', password = '') => {
+    sessionGeneration.current++;
     const result = await signInWithPassword(email, password);
     if (!result.user) return { success: false, error: result.error };
     if (result.user.role !== role) { await signOut(); return { success: false, error: `This account is registered as ${result.user.role.replace('_', ' ')}.` }; }
@@ -162,13 +191,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logout = () => {
-    void signOut();
+    sessionGeneration.current++;
+    currentUserRef.current = null;
+    void signOut().catch(() => {});
     setCurrentUser(null);
     setDataError('');
     setStaff([]);
     setPatients([]);
     setAppointments([]);
     setPrescriptions([]);
+    setSelectedPatientId(null); setSearchQuery(''); setActiveView('dashboard');
+    setConnectionStatus('connecting'); setLastSyncedAt(null);
   };
 
 
@@ -200,7 +233,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const result = await dbUpsertPatient(newPatient);
     if (!result.success) return { error: result.error || 'Patient registration could not be saved.' };
-    setPatients(prev => [newPatient, ...prev]);
+    mutationGeneration.current++;
+    setPatients(prev => [newPatient, ...prev.filter(p => p.id !== newPatient.id)]);
     return { patient: newPatient };
   };
 
@@ -224,7 +258,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const result = await dbUpsertAppointment(newApt);
     if (!result.success) return { error: result.error || 'The booking could not be saved.' };
-    setAppointments(prev => [newApt, ...prev]);
+    mutationGeneration.current++;
+    setAppointments(prev => [newApt, ...prev.filter(a => a.id !== newApt.id)]);
     return { appointment: newApt };
   };
 
@@ -232,6 +267,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDataError('');
     const result = await dbUpdateAppointmentStatus(id, status);
     if (!result.success) { setDataError(result.error || 'Appointment status could not be saved.'); return false; }
+    mutationGeneration.current++;
     setAppointments(prev => prev.map(apt => apt.id === id ? { ...apt, status } : apt));
     return true;
   };
@@ -256,7 +292,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     const result = await dbUpsertPrescription(newRx);
     if (!result.success) return { error: result.error || 'Prescription could not be saved.' };
-    setPrescriptions(prev => [newRx, ...prev]);
+    mutationGeneration.current++;
+    setPrescriptions(prev => [newRx, ...prev.filter(rx => rx.id !== newRx.id)]);
     return { prescription: newRx };
   };
 
@@ -278,18 +315,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
 
     const result = await dbUpsertStaff(newStaff);
-    if (result.success) await refreshFromDatabase();
+    if (result.success) { mutationGeneration.current++; await refreshFromDatabase(); }
     return result;
   };
 
   const updateStaffMember = (id: string, updated: Partial<StaffMember>) => {
-    setStaff(prev => {
-      const next = prev.map(s => (s.id === id ? { ...s, ...updated } : s));
-      const target = next.find(s => s.id === id);
-      if (target) {
-        dbUpsertStaff(target).catch(err => console.warn('Supabase update staff sync:', err));
-      }
-      return next;
+    const target = staff.find(s => s.id === id);
+    if (!target) return;
+    void dbUpsertStaff({ ...target, ...updated }).then(result => {
+      if (!result.success) { setDataError(result.error || 'Staff update failed.'); return; }
+      mutationGeneration.current++;
+      setStaff(prev => prev.map(s => s.id === id ? { ...s, ...updated } : s));
+      void refreshFromDatabase();
     });
   };
 
@@ -303,6 +340,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     const result = await dbDeleteStaff(id);
     if (!result.success) return result;
+    mutationGeneration.current++;
     // Refresh first so an earlier directory fetch cannot restore the deleted row.
     await refreshFromDatabase();
     setStaff(prev => prev.filter(s => s.id !== id));
@@ -362,6 +400,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         doctorTimings,
         isDbSyncing,
         dataError,
+        connectionStatus,
+        lastSyncedAt,
         login,
         logout,
         setActiveView,

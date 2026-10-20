@@ -49,3 +49,13 @@ layout, keyboard interaction, or the operating system print dialog.
 
 Prescription saving and appointment status changes use server-only endpoints in `api/`.
 Restart `npm run dev` after updating these endpoints or the Vite configuration.
+
+## Online use on a laptop and three phones
+
+Open the same Vercel site on all four devices and sign in with the relevant role on each. Every device needs internet; they do not need the same Wi-Fi or a running laptop server. Active screens refresh cloud patient, appointment, prescription and staff records every two seconds, plus network latency. Returning to a tab or reconnecting also refreshes it. A connection warning appears when updates fail; previously loaded records are retained instead of being cleared by a failed fetch.
+
+Doctor views show assigned patients/bookings and the prescription history for those patients. Prescription and appointment-status endpoints enforce the assigned doctor's ownership. Super Admin and Assistant views update as the doctor saves consultations. Staff creation/deactivation propagates to other devices; inactive users are signed out on the next successful refresh. Signing out on one device leaves other devices' sessions active.
+
+Custom doctor services/timings are still stored only in the current app session, not in Supabase. They are not covered by online synchronization and require persistent database storage before they can be shared. Standard routine consultation fees are shared application configuration.
+
+Run `node scripts/verify-online-multidevice.mjs --local` to test the local frontend/APIs against the configured online database, or omit `--local` to test the live Vercel URL. Set `CLINIC_TEST_ORIGIN` to check a particular deployment. The Windows check launches one hidden laptop-sized Chrome session and three isolated 390px mobile sessions, creates clearly named temporary accounts/clinical records, and removes them afterward. It verifies automatic screen updates, role-restricted actions, receipts, staff changes, disconnect/reconnect and independent sessions. It simulates phone screens; physical Android/iOS devices and their connectivity still need a clinic acceptance check.

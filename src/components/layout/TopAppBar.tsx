@@ -4,7 +4,7 @@ import { matchesPatientIdentifier } from '../../utils/patientLookup';
 import { StaffRoleIcon } from '../staff/StaffRoleIcon';
 
 export const TopAppBar: React.FC = () => {
-  const { searchQuery, setSearchQuery, currentUser, activeView, setActiveView, setSelectedPatientId, patients } = useApp();
+  const { searchQuery, setSearchQuery, currentUser, activeView, setActiveView, setSelectedPatientId, patients, connectionStatus, lastSyncedAt } = useApp();
   const [showNotificationMenu, setShowNotificationMenu] = useState(false);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
 
@@ -32,7 +32,7 @@ export const TopAppBar: React.FC = () => {
         <div className="hidden lg:flex items-center space-x-2 text-xs">
           <div className="flex items-center bg-slate-50 px-2.5 py-1 rounded border border-slate-200">
             <span className="flex h-2 w-2 rounded-full bg-emerald-500 mr-2 animate-pulse"></span>
-            <span className="text-slate-600 font-medium text-[11px]">PostgreSQL Connected</span>
+            <span role="status" title={lastSyncedAt ? `Last synced ${new Date(lastSyncedAt).toLocaleTimeString()}` : undefined} className={`font-medium text-[11px] ${connectionStatus === 'disconnected' ? 'text-red-700' : 'text-slate-600'}`}>{connectionStatus === 'connected' ? 'Online · Updates every 2 seconds' : connectionStatus === 'disconnected' ? 'Connection lost · Updates paused' : 'Connecting…'}</span>
           </div>
         </div>
 
@@ -120,7 +120,7 @@ export const TopAppBar: React.FC = () => {
         <div className="h-4 w-px bg-slate-200 hidden lg:block"></div>
 
         {/* Notifications Button */}
-        <div className="relative">
+        <div className="relative hidden sm:block">
           <button
             onClick={() => setShowNotificationMenu(!showNotificationMenu)}
             className="p-1.5 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded transition-colors relative"
@@ -157,7 +157,7 @@ export const TopAppBar: React.FC = () => {
         {currentUser?.role === 'super_admin' && (
           <button
             onClick={() => setActiveView('settings')}
-            className={`px-3 py-1.5 rounded text-xs font-bold transition-all flex items-center gap-1.5 border shadow-xs ${
+            className={`hidden md:flex px-3 py-1.5 rounded text-xs font-bold transition-all items-center gap-1.5 border shadow-xs ${
               activeView === 'settings'
                 ? 'bg-slate-900 text-white border-slate-900 ring-2 ring-emerald-500/30'
                 : 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100'
@@ -169,12 +169,12 @@ export const TopAppBar: React.FC = () => {
           </button>
         )}
 
-        <button
+        {(currentUser?.role === 'assistant' || currentUser?.role === 'super_admin') && <button
           onClick={() => setActiveView('patient_registration')}
-          className="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold shadow-sm hover:bg-emerald-700 transition-colors"
+          className="hidden sm:block bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold shadow-sm hover:bg-emerald-700 transition-colors"
         >
           + Register Patient
-        </button>
+        </button>}
 
         {/* Logged in User Badge */}
         <div className="flex items-center gap-2 pl-2 border-l border-slate-200">

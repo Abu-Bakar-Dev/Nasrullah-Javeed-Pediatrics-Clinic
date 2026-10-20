@@ -101,7 +101,7 @@ export const getAuthenticatedProfile = async (): Promise<StaffMember | null> => 
   return data?.status === 'active' ? profileToStaff(data) : null;
 };
 
-export const signOut = async () => { await getSupabase()?.auth.signOut(); };
+export const signOut = async () => { await getSupabase()?.auth.signOut({ scope: 'local' }); };
 
 export const requestPasswordReset = async (email: string) => {
   const client = getSupabase();
@@ -341,6 +341,9 @@ export const fetchAllDbData = async (): Promise<LiveDbData | null> => {
       client.from('appointments').select('*').order('created_at', { ascending: false }),
       client.from('prescriptions').select('*').order('created_at', { ascending: false }),
     ]);
+    for (const result of [patientsRes, staffRes, aptRes, rxRes]) {
+      if (result.error) throw new Error(result.error.message);
+    }
 
     const patients: Patient[] = (patientsRes.data || []).map((row: any) => ({
       id: row.id,
@@ -403,7 +406,7 @@ export const fetchAllDbData = async (): Promise<LiveDbData | null> => {
     return { patients, staff, appointments, prescriptions };
   } catch (e) {
     console.error('Failed to fetch data from Supabase', e);
-    return null;
+    throw e;
   }
 };
 

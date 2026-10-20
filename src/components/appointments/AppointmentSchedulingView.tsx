@@ -292,6 +292,7 @@ export const AppointmentSchedulingView: React.FC = () => {
                 >
                   <div>
                     <h4 className="font-bold text-xs text-slate-900">{apt.patientName}</h4>
+                    <p className="text-[11px] font-semibold text-emerald-800">Status: {apt.status.replaceAll('_', ' ')}</p>
                     <p className="text-[11px] text-slate-500">{apt.doctorName} • {apt.reason}</p>
                     <p className="font-mono text-[10px] text-emerald-800 font-bold mt-0.5">
                       📅 {apt.date} at {apt.time}
