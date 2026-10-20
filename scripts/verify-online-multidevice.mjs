@@ -27,7 +27,7 @@ try {
   const accounts = {};
   for (const [label, role] of [['admin', 'super_admin'], ['assistant', 'assistant'], ['doctor', 'doctor'], ['other', 'doctor']]) {
     const email = `sync-check-${label}-${fixtureTag}@example.com`, password = `${randomUUID()}Aa1!`;
-    const { user } = unwrap(await admin.auth.admin.createUser({ email, password, email_confirm: true })); userIds.push(user.id);
+    const { user } = unwrap(await admin.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { clinic_sync_verification: fixtureTag } })); userIds.push(user.id);
     unwrap(await admin.from('profiles').insert({ id: user.id, email, name: `SYNC CHECK ${label}`, role, department: 'Temporary verification', status: 'active' }));
     accounts[label] = { id: user.id, email, password };
     clients[label] = createClient(url, anonymousKey, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -120,6 +120,14 @@ try {
 } finally {
   await Promise.allSettled(browsers.map(b => b.close()));
   const cleanupErrors = [];
+  // A create-user request can reach the server even if its response is lost. Discover this run's
+  // exact UUID-tagged fixtures as well as the IDs returned successfully, without touching other users.
+  for (let page = 1; ; page++) {
+    const listed = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (listed.error) { cleanupErrors.push('Cannot audit temporary account cleanup: ' + listed.error.message); break; }
+    for (const user of listed.data.users) if (user.email?.includes(fixtureTag) && /^sync-(check|extra)-/.test(user.email) && !userIds.includes(user.id)) userIds.push(user.id);
+    if (listed.data.users.length < 1000) break;
+  }
   // Find by the unique run name as well, so failed UI assertions cannot leave a newly saved fixture behind.
   const found = await admin.from('patients').select('id').eq('name', patientName);
   const patientIds = [...new Set([patientId, ...(found.data || []).map(p => p.id)].filter(Boolean))];
