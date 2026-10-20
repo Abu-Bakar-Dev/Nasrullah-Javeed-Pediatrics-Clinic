@@ -4,6 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "offline:build": "vite build --config offline/vite.config.ts && node offline/package.mjs",
+    "offline:start": "node offline/server.mjs",
+    "offline:test": "node --test offline/default-admin.test.mjs offline/server.test.mjs offline/multidevice.test.mjs",
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
     "preview": "vite preview",
